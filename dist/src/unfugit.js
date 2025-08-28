@@ -78,7 +78,7 @@ function createEphemeralResource(mimeType, payload, size) {
                 {
                     uri: key,
                     mimeType: item.mimeType,
-                    ...(item.text !== undefined ? { text: item.text } : { blob: item.blob }),
+                    ...(item.text !== undefined ? { text: item.text } : { blob: item.blob || '' }),
                     _meta: { size: item.size, expiresAt },
                 },
             ],
@@ -1015,7 +1015,7 @@ async function gitDiff(args) {
         // Filter by paths if specified
         let filteredFiles = changes.files;
         if (args.paths && args.paths.length > 0) {
-            filteredFiles = changes.files.filter((file) => args.paths.some((p) => file.startsWith(p) || minimatch(file, p)));
+            filteredFiles = changes.files.filter((file) => (args.paths || []).some((p) => file.startsWith(p) || minimatch(file, p)));
         }
         // Debug: Log what we're about to return
         await sendLoggingMessage('info', `gitDiff: output=${args.output}, filteredFiles=${filteredFiles.length}`);
@@ -1175,6 +1175,8 @@ async function gitLogPickaxe(args) {
                     }
                     if (matches) {
                         found = true;
+                        if (!commitInfo.files)
+                            commitInfo.files = [];
                         commitInfo.files.push(entry.path);
                     }
                 }
@@ -1184,7 +1186,7 @@ async function gitLogPickaxe(args) {
             }
             if (found) {
                 // Get stats for the commit
-                commitInfo.filesChanged = commitInfo.files.length;
+                commitInfo.filesChanged = (commitInfo.files || []).length;
                 // Add to results
                 results.push(commitInfo);
                 if (args.limit && results.length >= args.limit) {

@@ -18,14 +18,12 @@ class McpClient {
         });
         this.process.stdout?.on('data', (data) => {
             this.buffer += data.toString();
-            if (this.debug)
-                console.log('STDOUT:', data.toString());
+            // if (this.debug) console.log('STDOUT:', data.toString());
             this.parseResponses();
         });
         this.process.stderr?.on('data', (data) => {
             this.stderr += data.toString();
-            if (this.debug)
-                console.log('STDERR:', data.toString());
+            // if (this.debug) console.log('STDERR:', data.toString());
         });
         this.process.on('error', (err) => {
             console.error('Process error:', err);
@@ -43,9 +41,8 @@ class McpClient {
                         this.handleResponse(response);
                     }
                 }
-                catch (parseError) {
-                    if (this.debug)
-                        console.log('Failed to parse:', line, parseError);
+                catch {
+                    // if (this.debug) console.log('Failed to parse:', line, parseError);
                 }
             }
         }
@@ -57,8 +54,7 @@ class McpClient {
             handler(response);
         }
         else {
-            if (this.debug)
-                console.log('No handler for response:', response.id);
+            // if (this.debug) console.log('No handler for response:', response.id);
         }
     }
     async sendRequest(request) {
@@ -91,15 +87,13 @@ class McpClient {
     async close() {
         this.process.stdin?.end();
         await new Promise((resolve) => {
-            this.process.once('exit', (code) => {
-                if (this.debug)
-                    console.log(`Process exited with code ${code}`);
+            this.process.once('exit', (_code) => {
+                // if (this.debug) console.log(`Process exited with code ${code}`);
                 resolve();
             });
             // Give the process more time to exit gracefully
             setTimeout(() => {
-                if (this.debug)
-                    console.log('Force killing process after timeout');
+                // if (this.debug) console.log('Force killing process after timeout');
                 this.process.kill('SIGTERM');
                 // If SIGTERM doesn't work, use SIGKILL after additional delay
                 setTimeout(() => {
@@ -288,14 +282,14 @@ describe('unfugit MCP Server', () => {
                     arguments: {},
                 },
             });
-            console.log('First commit response:', firstCommitResponse.result?.content[0]?.text);
+            // console.log('First commit response:', firstCommitResponse.result?.content[0]?.text);
             // Extract the first commit hash
             const firstHashMatch = firstCommitResponse.result?.structuredContent?.hash ||
                 (firstCommitResponse.result?.content[0]?.text.match(/created: ([a-f0-9]+)/) || [])[1];
-            console.log('First commit hash:', firstHashMatch);
+            // console.log('First commit hash:', firstHashMatch);
             await new Promise((resolve) => setTimeout(resolve, 500));
             // Now make a change
-            console.log('Changing test1.txt from "Initial content" to "Changed content"');
+            // console.log('Changing test1.txt from "Initial content" to "Changed content"');
             await writeFile(join(testDir, 'test1.txt'), 'Changed content');
             // Wait a bit to ensure file write is complete
             await new Promise((resolve) => setTimeout(resolve, 500));
@@ -309,11 +303,11 @@ describe('unfugit MCP Server', () => {
                     arguments: {},
                 },
             });
-            console.log('Second commit response:', secondCommitResponse.result?.content[0]?.text);
+            // console.log('Second commit response:', secondCommitResponse.result?.content[0]?.text);
             // Extract the second commit hash
             const secondHashMatch = secondCommitResponse.result?.structuredContent?.hash ||
                 (secondCommitResponse.result?.content[0]?.text.match(/created: ([a-f0-9]+)/) || [])[1];
-            console.log('Second commit hash:', secondHashMatch);
+            // console.log('Second commit hash:', secondHashMatch);
             await new Promise((resolve) => setTimeout(resolve, 500));
             // Get the commit history
             const historyResponse = await client.sendRequest({
@@ -327,9 +321,9 @@ describe('unfugit MCP Server', () => {
             });
             // Extract the commit hashes from the history
             const historyText = historyResponse.result?.content[0]?.text || '';
-            console.log('History text:', historyText);
+            // console.log('History text:', historyText);
             const commits = historyText.match(/^([a-f0-9]{8})/gm) || [];
-            console.log('Found commits:', commits);
+            // console.log('Found commits:', commits);
             // We should have at least 2 commits (initial + our two forced commits)
             if (commits.length < 2) {
                 throw new Error(`Expected at least 2 commits, but found ${commits.length}: ${commits.join(', ')}`);
@@ -354,7 +348,7 @@ describe('unfugit MCP Server', () => {
             // Use the actual commit hashes we captured (full hashes, not abbreviated)
             const base = firstHashMatch || commits[2];
             const head = secondHashMatch || commits[0];
-            console.log(`Comparing commits: ${base} (first) -> ${head} (second)`);
+            // console.log(`Comparing commits: ${base} (first) -> ${head} (second)`);
             const diffResponse = await client.sendRequest({
                 jsonrpc: '2.0',
                 id: 5,
@@ -369,7 +363,7 @@ describe('unfugit MCP Server', () => {
             });
             expect(diffResponse.result).toBeDefined();
             const diffText = diffResponse.result.content[0].text;
-            console.log('Diff text:', diffText);
+            // console.log('Diff text:', diffText);
             expect(diffText).toContain('test1.txt');
             // File might be new or modified depending on timing
             expect(diffText).toMatch(/\+Changed content|Changed content/);
@@ -463,7 +457,7 @@ describe('unfugit MCP Server', () => {
             const uniqueContent = 'UNIQUE_SEARCH_STRING_12345';
             await writeFile(join(testDir, 'search_test.txt'), uniqueContent);
             // Force a commit since watcher may not be reliable in tests
-            const forceResponse = await client.sendRequest({
+            await client.sendRequest({
                 jsonrpc: '2.0',
                 id: 2,
                 method: 'tools/call',
@@ -472,7 +466,7 @@ describe('unfugit MCP Server', () => {
                     arguments: {},
                 },
             });
-            console.log('Force commit response for search:', forceResponse.result?.content[0]?.text);
+            // console.log('Force commit response for search:', forceResponse.result?.content[0]?.text);
             await new Promise((resolve) => setTimeout(resolve, 500)); // Small wait for commit
             // Check the history to see what commits exist
             const historyResponse = await client.sendRequest({
@@ -485,7 +479,7 @@ describe('unfugit MCP Server', () => {
                 },
             });
             const historyText = historyResponse.result?.content[0]?.text || '';
-            console.log('History before search:', historyText);
+            // console.log('History before search:', historyText);
             // Verify the file was committed
             if (!historyText.includes('search_test.txt')) {
                 console.error('WARNING: search_test.txt not found in commit history!');
@@ -501,7 +495,7 @@ describe('unfugit MCP Server', () => {
                     },
                 },
             });
-            console.log('Search response:', JSON.stringify(searchResponse, null, 2));
+            // console.log('Search response:', JSON.stringify(searchResponse, null, 2));
             expect(searchResponse.result).toBeDefined();
             const searchText = searchResponse.result.content[0].text;
             expect(searchText).toContain('search_test.txt');
