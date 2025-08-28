@@ -1,6 +1,6 @@
 # Unbreak Now: Fallback Using Git
 
-You enabled YOLO mode before your coffee break and now half your source tree is one big syntax error? UNFUGit!
+You enabled YOLO mode before your coffee break and now half your source tree is one big syntax error? unfugit!
 
 An MCP server that maintains an append-only git audit trail. Because between the AI agents "making catastrophic errors in judgment" and developers who "don't understand their own code," somebody needs to keep track of what actually happened.
 
@@ -65,7 +65,7 @@ claude mcp add unfugit -- node /absolute/path/to/unfugit/dist/src/unfugit.js
 
 ## Why Separate Audit Repository?
 
-AI agents love deleting .git directories when things go wrong. UNFUGit keeps the audit trail separate so they can't destroy the evidence.
+AI agents love deleting .git directories when things go wrong. unfugit keeps the audit trail separate so they can't destroy the evidence.
 
 ## Architecture
 
@@ -76,7 +76,6 @@ AI agents love deleting .git directories when things go wrong. UNFUGit keeps the
 
 ## MCP Tools
 
-- `ping` - Check server connectivity and status
 - `unfugit_history` - Browse commit history with pagination
 - `unfugit_diff` - Compare changes between commits
 - `unfugit_show` - Display commit details
@@ -133,7 +132,7 @@ Built for a world where AI agents delete production databases saying "I destroye
 > "I'm not technical so this is taking me longer than usual to figure out"  
 > — A vibe coder whose AI-built SaaS was under attack
 
-UNFUGit doesn't judge. It just records everything.
+unfugit doesn't judge. It just records everything.
 
 ## License
 

@@ -174,7 +174,6 @@ class InteractiveUnfugitClient {
     this.log('\n=== Available Commands ===', colors.bright);
     this.log('help                     - Show this help message');
     this.log('tools                    - List available tools');
-    this.log('ping                     - Test server connectivity');
     this.log('history [limit]          - Show commit history');
     this.log('stats                    - Show repository statistics');
     this.log('diff <from> <to>         - Show diff between refs');
@@ -210,12 +209,6 @@ class InteractiveUnfugitClient {
               this.log(`  ${tool.description.substring(0, 70)}...`, colors.dim);
             }
           });
-          break;
-          
-        case 'ping':
-          const ping = await this.callTool('ping');
-          this.log('Server ping response:', colors.green);
-          console.log(JSON.stringify(ping, null, 2));
           break;
           
         case 'history':
@@ -423,7 +416,7 @@ async function main() {
   const args = process.argv.slice(2);
   
   if (args.length === 0) {
-    console.log(`${colors.bright}Interactive Unfugit Test Client${colors.reset}`);
+    console.log(`${colors.bright}Interactive unfugit Test Client${colors.reset}`);
     console.log(`Usage: node test-interactive.js <path-to-repo> [path-to-unfugit.js]`);
     console.log('\nExamples:');
     console.log('  node test-interactive.js .');

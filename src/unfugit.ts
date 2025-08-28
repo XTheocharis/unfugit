@@ -1716,10 +1716,10 @@ function registerAllResources(server: McpServer) {
   server.registerResource(
     'server-stats',
     'unfugit://stats',
-    { title: 'Server Statistics', description: 'Unfugit Server Statistics and repository info' },
+    { title: 'Server Statistics', description: 'unfugit server statistics and repository info' },
     async (uri: any, _extra: any) => {
       const stats = await gatherCompleteStats(true);
-      const text = `# Unfugit Server Statistics
+      const text = `# unfugit server statistics
 
 Version: ${stats.version}
 Role: ${stats.role}
@@ -1776,7 +1776,7 @@ function registerAllPrompts(server: McpServer) {
               type: 'text' as const,
               text: `Use unfugit_* tools for audit history, diffs, file bytes, restores, and ignore management. Do not run shell git for these tasks.
 
-Unfugit model:
+unfugit model:
 - Separate append-only audit repo for this project.
 - Never rewrite audit history.
 - Restore tools copy bytes into the worktree and do not edit the audit repo.
@@ -2421,7 +2421,7 @@ async function loadCustomIgnores() {
 async function saveCustomIgnores() {
   const ignorePath = path.join(projectRoot, CUSTOM_IGNORES_FILE);
   const content = [
-    '# Unfugit custom ignore patterns',
+    '# unfugit custom ignore patterns',
     '# Use glob patterns with / as separator',
     ...customIgnores,
     '',
@@ -2610,7 +2610,7 @@ async function initializeAuditRepo() {
 
     // Add README
     const readmeContent = Buffer.from(
-      `# Unfugit Audit Repository\n\nCreated: ${new Date().toISOString()}\nProject: ${projectRoot}\n`,
+      `# unfugit audit repository\n\nCreated: ${new Date().toISOString()}\nProject: ${projectRoot}\n`,
     );
     files.set('README.md', readmeContent);
 
@@ -3038,40 +3038,6 @@ function createToolResponse(content: any[], _structuredContent?: any, text?: str
 // --- Register All Tools ---
 
 function registerAllTools(srv: McpServer) {
-  // ping tool
-  registerToolWithErrorHandling(
-    srv,
-    'ping',
-    {
-      title: 'Ping Server',
-      description: 'Test server connectivity and get basic status',
-      inputSchema: {},
-    },
-    async (args: any, _extra: any) => {
-      const result = {
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0',
-      };
-
-      return createToolResponse(
-        [
-          {
-            type: 'resource',
-            resource: {
-              uri: 'resource://unfugit/ping.json',
-              mimeType: 'application/json',
-              text: JSON.stringify(result),
-              _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
-            },
-          },
-        ],
-        result,
-        'Server is responding normally',
-      );
-    },
-  );
-
   // unfugit_history tool
   registerToolWithErrorHandling(
     srv,

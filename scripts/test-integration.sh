@@ -24,7 +24,7 @@ TEST_REPOS=(
 )
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║       Unfugit Integration Test Suite               ║${NC}"
+echo -e "${BLUE}║       unfugit Integration Test Suite               ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
 echo ""
 

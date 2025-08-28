@@ -208,44 +208,11 @@ describe('unfugit MCP Server', () => {
       expect(toolsResponse.result.tools.length).toBeGreaterThan(0);
 
       const toolNames = toolsResponse.result.tools.map((t: any) => t.name);
-      expect(toolNames).toContain('ping');
       expect(toolNames).toContain('unfugit_history');
       expect(toolNames).toContain('unfugit_diff');
       expect(toolNames).toContain('unfugit_restore_apply');
 
       // Note: The server doesn't implement shutdown method, so we skip this test
-    });
-
-    it('should handle ping tool', async () => {
-      client = new McpClient(testDir);
-
-      // Initialize first
-      await client.sendRequest({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '1.0.0',
-          capabilities: {},
-          clientInfo: { name: 'test', version: '1.0.0' },
-        },
-      });
-
-      // Call ping tool
-      const pingResponse = await client.sendRequest({
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: {
-          name: 'ping',
-          arguments: {},
-        },
-      });
-
-      expect(pingResponse.result).toBeDefined();
-      expect(pingResponse.result.content).toBeInstanceOf(Array);
-      expect(pingResponse.result.content[0].type).toBe('text');
-      expect(pingResponse.result.content[0].text).toContain('Server is responding normally');
     });
   });
 
@@ -274,25 +241,11 @@ describe('unfugit MCP Server', () => {
       // Wait for server initialization to complete (active election + watcher start)
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // First try ping to test basic tool functionality
-      const pingResponse = await client.sendRequest({
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: {
-          name: 'ping',
-          arguments: {},
-        },
-      });
-
-      expect(pingResponse.result).toBeDefined();
-      expect(pingResponse.result.content[0].text).toContain('Server is responding normally');
-
       // Try to verify audit repository creation by checking if we can get the history
       // This will only work if the audit repo was properly initialized
       const historyResponse = await client.sendRequest({
         jsonrpc: '2.0',
-        id: 3,
+        id: 2,
         method: 'tools/call',
         params: {
           name: 'unfugit_history',
@@ -311,7 +264,7 @@ describe('unfugit MCP Server', () => {
 
       // The audit repository initialization is successful if:
       // 1. History tool doesn't fail with repo initialization errors
-      // 2. Server can respond to tool calls (ping works)
+      // 2. Server can respond to tool calls
       expect(historyResponse.result || historyResponse.error).toBeDefined();
     });
 
@@ -714,7 +667,7 @@ describe('unfugit MCP Server', () => {
 
       expect(readResponse.result).toBeDefined();
       expect(readResponse.result.contents).toBeInstanceOf(Array);
-      expect(readResponse.result.contents[0].text).toContain('Unfugit Server Statistics');
+      expect(readResponse.result.contents[0].text).toContain('unfugit server statistics');
     });
   });
 

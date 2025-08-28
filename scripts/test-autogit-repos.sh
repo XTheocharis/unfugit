@@ -17,7 +17,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║     Testing Unfugit with Autogit Repositories      ║${NC}"
+echo -e "${BLUE}║     Testing unfugit with Autogit Repositories      ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -31,7 +31,7 @@ echo ""
 # Test repositories
 REPOS=(
     "/home/user/.claude/mcp-servers/autogit|Main autogit MCP server"
-    "/home/user/.claude/mcp-servers/unfugit|Unfugit itself"
+    "/home/user/.claude/mcp-servers/unfugit|unfugit itself"
     "/home/user/.claude/mcp-servers/polyglot-mcp|Polyglot MCP server"
 )
 

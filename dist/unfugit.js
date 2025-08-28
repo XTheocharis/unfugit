@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Core SDK imports
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -1466,9 +1467,9 @@ function registerAllResources(server) {
         };
     });
     // Server statistics resource
-    server.registerResource('server-stats', 'unfugit://stats', { title: 'Server Statistics', description: 'Unfugit Server Statistics and repository info' }, async (uri, _extra) => {
+    server.registerResource('server-stats', 'unfugit://stats', { title: 'Server Statistics', description: 'unfugit server statistics and repository info' }, async (uri, _extra) => {
         const stats = await gatherCompleteStats(true);
-        const text = `# Unfugit Server Statistics
+        const text = `# unfugit server statistics
 
 Version: ${stats.version}
 Role: ${stats.role}
@@ -1518,7 +1519,7 @@ function registerAllPrompts(server) {
                         type: 'text',
                         text: `Use unfugit_* tools for audit history, diffs, file bytes, restores, and ignore management. Do not run shell git for these tasks.
 
-Unfugit model:
+unfugit model:
 - Separate append-only audit repo for this project.
 - Never rewrite audit history.
 - Restore tools copy bytes into the worktree and do not edit the audit repo.
@@ -2056,7 +2057,7 @@ async function loadCustomIgnores() {
 async function saveCustomIgnores() {
     const ignorePath = path.join(projectRoot, CUSTOM_IGNORES_FILE);
     const content = [
-        '# Unfugit custom ignore patterns',
+        '# unfugit custom ignore patterns',
         '# Use glob patterns with / as separator',
         ...customIgnores,
         '',
@@ -2191,8 +2192,8 @@ async function scanProjectFiles(dir, ignorePatterns) {
                 if (shouldIgnore)
                     continue;
                 if (entry.isDirectory()) {
-                    // Skip .unfugit-audit directory
-                    if (entry.name === '.unfugit-audit')
+                    // Skip .unfugit directory
+                    if (entry.name === '.unfugit')
                         continue;
                     await scan(fullPath, baseDir);
                 }
@@ -2221,7 +2222,7 @@ async function initializeAuditRepo() {
         // Create initial commit with README and any existing project files
         const files = new Map();
         // Add README
-        const readmeContent = Buffer.from(`# Unfugit Audit Repository\n\nCreated: ${new Date().toISOString()}\nProject: ${projectRoot}\n`);
+        const readmeContent = Buffer.from(`# unfugit audit repository\n\nCreated: ${new Date().toISOString()}\nProject: ${projectRoot}\n`);
         files.set('README.md', readmeContent);
         // Scan and add existing project files for initial snapshot
         try {
@@ -2574,29 +2575,6 @@ function createToolResponse(content, _structuredContent, text) {
 }
 // --- Register All Tools ---
 function registerAllTools(srv) {
-    // ping tool
-    registerToolWithErrorHandling(srv, 'ping', {
-        title: 'Ping Server',
-        description: 'Test server connectivity and get basic status',
-        inputSchema: {},
-    }, async (args, _extra) => {
-        const result = {
-            status: 'ok',
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-        };
-        return createToolResponse([
-            {
-                type: 'resource',
-                resource: {
-                    uri: 'resource://unfugit/ping.json',
-                    mimeType: 'application/json',
-                    text: JSON.stringify(result),
-                    _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
-                },
-            },
-        ], result, 'Server is responding normally');
-    });
     // unfugit_history tool
     registerToolWithErrorHandling(srv, 'unfugit_history', {
         title: 'Audit History Browser',

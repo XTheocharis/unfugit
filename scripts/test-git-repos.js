@@ -435,7 +435,7 @@ async function main() {
   }
 
   console.log(`${colors.blue}${colors.bright}╔${'═'.repeat(58)}╗${colors.reset}`);
-  console.log(`${colors.blue}${colors.bright}║   Unfugit Read-Only Query Tests on Git Repositories    ║${colors.reset}`);
+  console.log(`${colors.blue}${colors.bright}║   unfugit Read-Only Query Tests on Git Repositories    ║${colors.reset}`);
   console.log(`${colors.blue}${colors.bright}╚${'═'.repeat(58)}╝${colors.reset}`);
 
   const allResults = [];

@@ -2,7 +2,7 @@
 
 # Final comprehensive test script for unfugit search features
 
-echo "=== Unfugit Comprehensive Search Tests ==="
+echo "=== unfugit Comprehensive Search Tests ==="
 echo
 
 # Function to run a test

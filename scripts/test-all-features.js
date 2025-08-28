@@ -34,13 +34,6 @@ async function runTests() {
   });
   await sleep(500);
 
-  console.error('\n=== Testing ping ===');
-  sendRequest('tools/call', {
-    name: 'ping',
-    arguments: {}
-  });
-  await sleep(500);
-
   console.error('\n=== Testing unfugit_history ===');
   sendRequest('tools/call', {
     name: 'unfugit_history',

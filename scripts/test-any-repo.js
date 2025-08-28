@@ -220,13 +220,13 @@ class UnfugitTester {
   }
 
   async runTests() {
-    this.log('INFO', `${colors.bright}=== Starting Unfugit Tests ===${colors.reset}`);
+    this.log('INFO', `${colors.bright}=== Starting unfugit Tests ===${colors.reset}`);
     
-    // Test 1: Ping
-    this.log('TEST', 'Test 1: Ping server');
-    const ping = await this.callTool('ping');
-    if (ping?.structuredContent) {
-      this.log('RESULT', 'Server info:', ping.structuredContent);
+    // Test 1: Get stats
+    this.log('TEST', 'Test 1: Get server stats');
+    const stats = await this.callTool('unfugit_stats');
+    if (stats?.structuredContent) {
+      this.log('RESULT', 'Server stats:', stats.structuredContent);
     }
 
     // Test 2: Get history

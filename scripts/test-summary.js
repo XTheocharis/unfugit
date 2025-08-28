@@ -145,14 +145,11 @@ class QuickTest {
     };
 
     try {
-      // Ping test
-      const ping = await this.callTool('ping');
-      if (ping?.structuredContent?.status === 'ok') {
-        stats.server_ok = true;
-      }
-
       // Get stats
       const serverStats = await this.callTool('unfugit_stats');
+      if (serverStats?.structuredContent?.auditRepo) {
+        stats.server_ok = true;
+      }
       if (serverStats?.content?.[0]?.text) {
         const text = serverStats.content[0].text;
         const roleMatch = text.match(/role: (\w+)/);
@@ -214,7 +211,7 @@ async function testRepository(repoPath) {
 
 async function main() {
   console.log(`${colors.blue}${colors.bright}═══════════════════════════════════════════════════════${colors.reset}`);
-  console.log(`${colors.blue}${colors.bright}     Unfugit Quick Test Summary${colors.reset}`);
+  console.log(`${colors.blue}${colors.bright}     unfugit Quick Test Summary${colors.reset}`);
   console.log(`${colors.blue}${colors.bright}═══════════════════════════════════════════════════════${colors.reset}\n`);
 
   const repos = [
