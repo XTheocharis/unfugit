@@ -1,8 +1,8 @@
-# Unbreak Now: Fallback Using Git (unfugit)
-
-An MCP server that maintains an append-only git audit trail. Because between the AI agents "making catastrophic errors in judgment" and developers who "don't understand their own code," somebody needs to keep track of what actually happened.
+# Unbreak Now: Fallback Using Git
 
 You enabled YOLO mode before your coffee break and now half your source tree is one big syntax error? UNFUGit!
+
+An MCP server that maintains an append-only git audit trail. Because between the AI agents "making catastrophic errors in judgment" and developers who "don't understand their own code," somebody needs to keep track of what actually happened.
 
 ## Installation
 
