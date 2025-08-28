@@ -31,7 +31,7 @@ class McpClient {
   private debug = false;
 
   constructor(private projectDir: string) {
-    this.process = spawn('node', ['dist/unfugit.js', projectDir], {
+    this.process = spawn('node', ['dist/src/unfugit.js', projectDir], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
