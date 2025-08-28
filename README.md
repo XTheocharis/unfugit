@@ -19,11 +19,13 @@ npx github:XTheocharis/unfugit /path/to/project
 #### Claude Code (Recommended)
 
 One-line setup:
+
 ```bash
 claude mcp add unfugit -- npx -y github:XTheocharis/unfugit
 ```
 
 Verify installation:
+
 ```bash
 claude mcp list
 ```
@@ -44,6 +46,7 @@ Add to your Claude Desktop config:
 ```
 
 Config locations:
+
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/claude/claude_desktop_config.json`

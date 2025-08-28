@@ -7,7 +7,8 @@ import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import * as path from 'path';
 import * as crypto from 'crypto';
-// Removed execFile imports - using isomorphic-git instead
+import { execFile as execFileCallback } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as git from 'isomorphic-git';
 import * as fsFull from 'fs';
@@ -16,7 +17,8 @@ import { FSWatcher, watch } from 'chokidar';
 import * as mime from 'mime-types';
 import { minimatch } from 'minimatch';
 
-// Using isomorphic-git instead of exec
+// Promisify execFile for async usage
+const execFileAsync = promisify(execFileCallback);
 
 // --- Global State and Configuration ---
 let projectRoot: string;
@@ -253,7 +255,8 @@ async function execGit(args: string[], options?: any): Promise<string> {
     case 'cat-file':
       if (args[1] === '-t') {
         const [ref, path] = args[2].split(':');
-        return (await gitGetObjectType(ref, path)) || '';
+        const result = await gitGetObjectType(ref, path);
+        return result || '';
       }
       break;
     case 'status':
@@ -266,11 +269,30 @@ async function execGit(args: string[], options?: any): Promise<string> {
       return `count: ${stats.objectCount}\nsize: ${Math.floor(stats.size / 1024)}`;
     }
     case 'show':
-      // Handle show commands - will be replaced with proper implementation
-      return '';
+      // Use native git for show command
+      try {
+        const result = await execFileAsync('git', args, {
+          cwd: auditRepoPath,
+          ...options,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        return typeof result.stdout === 'string' ? result.stdout : result.stdout.toString();
+      } catch (error) {
+        throw new Error(`Git show failed: ${(error as any).message}`);
+      }
     default:
-      await sendLoggingMessage('warning', `Unhandled git command: ${command}`);
-      return '';
+      // For unhandled commands, fall back to native git
+      try {
+        const result = await execFileAsync('git', args, {
+          cwd: auditRepoPath,
+          ...options,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        return typeof result.stdout === 'string' ? result.stdout : result.stdout.toString();
+      } catch (error) {
+        await sendLoggingMessage('warning', `Git command failed: ${command}`);
+        return '';
+      }
   }
   return '';
 }
@@ -380,16 +402,64 @@ async function gitGetObjectType(ref: string, filepath: string): Promise<string |
       oid: commitOid,
     });
 
-    const tree = await git.readTree({
-      fs: fsFull,
-      dir: auditRepoPath,
-      oid: commit.commit.tree,
-    });
+    // First try to read the tree - if it fails due to unsafe paths, fall back to native git
+    try {
+      const tree = await git.readTree({
+        fs: fsFull,
+        dir: auditRepoPath,
+        oid: commit.commit.tree,
+      });
 
-    const entry = tree.tree.find((e) => e.path === filepath);
-    if (!entry) return null;
-    return entry.type;
-  } catch {
+      // Check if this is a flat structure (legacy format from native git)
+      // by looking for entries with slashes in their paths
+      const isFlatStructure = tree.tree.some((e) => e.path.includes('/'));
+
+      if (isFlatStructure) {
+        // Handle flat structure - look for the file directly in root tree
+        const entry = tree.tree.find((e) => e.path === filepath);
+        if (!entry) return null;
+        return entry.type;
+      } else {
+        // Handle proper nested structure
+        const parts = filepath.split('/');
+        let currentTreeOid = commit.commit.tree;
+
+        for (let i = 0; i < parts.length; i++) {
+          const currentTree = await git.readTree({
+            fs: fsFull,
+            dir: auditRepoPath,
+            oid: currentTreeOid,
+          });
+
+          const entry = currentTree.tree.find((e) => e.path === parts[i]);
+          if (!entry) return null;
+
+          if (i === parts.length - 1) {
+            return entry.type;
+          } else if (entry.type === 'tree') {
+            currentTreeOid = entry.oid;
+          } else {
+            return null;
+          }
+        }
+      }
+    } catch (treeError) {
+      // If isomorphic-git can't read the tree due to unsafe paths,
+      // fall back to using native git command
+      console.error(`Falling back to native git due to: ${treeError}`);
+      const { execFile } = require('child_process').promises;
+      try {
+        const result = await execFile('git', ['cat-file', '-t', `${ref}:${filepath}`], {
+          cwd: auditRepoPath,
+        });
+        const type = result.stdout.trim();
+        return type === 'blob' || type === 'tree' ? type : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  } catch (error) {
     return null;
   }
 }
@@ -501,27 +571,150 @@ async function gitReadFile(ref: string, filepath: string): Promise<Buffer> {
       oid: commitOid,
     });
 
-    const tree = await git.readTree({
-      fs: fsFull,
-      dir: auditRepoPath,
-      oid: commit.commit.tree,
-    });
+    // Walk the tree to handle nested paths
+    const parts = filepath.split('/');
+    let currentTreeOid = commit.commit.tree;
+    let fileOid: string | null = null;
 
-    const entry = tree.tree.find((e) => e.path === filepath);
-    if (!entry || entry.type !== 'blob') {
+    for (let i = 0; i < parts.length; i++) {
+      const tree = await git.readTree({
+        fs: fsFull,
+        dir: auditRepoPath,
+        oid: currentTreeOid,
+      });
+
+      const entry = tree.tree.find((e) => e.path === parts[i]);
+      if (!entry) {
+        throw new Error(`Path component not found: ${parts[i]}`);
+      }
+
+      if (i === parts.length - 1) {
+        // Last part - should be a blob
+        if (entry.type !== 'blob') {
+          throw new Error(`Path is not a file: ${filepath}`);
+        }
+        fileOid = entry.oid;
+      } else if (entry.type === 'tree') {
+        // Continue traversing
+        currentTreeOid = entry.oid;
+      } else {
+        // Not a directory but we expected more path parts
+        throw new Error(`Path component is not a directory: ${parts[i]}`);
+      }
+    }
+
+    if (!fileOid) {
       throw new Error(`File not found: ${filepath}`);
     }
 
     const blob = await git.readBlob({
       fs: fsFull,
       dir: auditRepoPath,
-      oid: entry.oid,
+      oid: fileOid,
     });
 
     return Buffer.from(blob.blob);
   } catch (error) {
     throw new Error(`Failed to read file ${filepath} from ${ref}: ${error}`);
   }
+}
+
+// Helper function to build a proper nested tree structure for isomorphic-git
+async function buildNestedTree(files: Map<string, Buffer | null>): Promise<any[]> {
+  // Create a nested structure to represent directories
+  const root: any = {};
+
+  // Process each file and build the directory structure
+  for (const [filepath, content] of files) {
+    if (content === null) continue; // Skip deleted files
+
+    const parts = filepath.split('/');
+    let current = root;
+
+    // Navigate/create directory structure
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!current[parts[i]]) {
+        current[parts[i]] = {};
+      }
+      current = current[parts[i]];
+    }
+
+    // Add file to the last directory
+    const filename = parts[parts.length - 1];
+
+    // Write blob first
+    const oid = await git.writeBlob({
+      fs: fsFull,
+      dir: auditRepoPath,
+      blob: new Uint8Array(content),
+    });
+
+    current[filename] = {
+      mode: '100644',
+      oid,
+      type: 'blob',
+    };
+  }
+
+  // Recursively build trees from the nested structure
+  async function buildTreeFromStructure(structure: any): Promise<string> {
+    const entries: any[] = [];
+
+    for (const [name, value] of Object.entries(structure)) {
+      const val = value as any;
+      if (val.type === 'blob') {
+        // It's a file
+        entries.push({
+          mode: val.mode,
+          path: name,
+          oid: val.oid,
+          type: 'blob',
+        });
+      } else {
+        // It's a directory - recursively build its tree
+        const subtreeOid = await buildTreeFromStructure(val);
+        entries.push({
+          mode: '040000',
+          path: name,
+          oid: subtreeOid,
+          type: 'tree',
+        });
+      }
+    }
+
+    // Write this tree and return its OID
+    const treeOid = await git.writeTree({
+      fs: fsFull,
+      dir: auditRepoPath,
+      tree: entries,
+    });
+
+    return treeOid;
+  }
+
+  // Build the entries for the root tree
+  const rootEntries: any[] = [];
+  for (const [name, value] of Object.entries(root)) {
+    const val = value as any;
+    if (val.type === 'blob') {
+      rootEntries.push({
+        mode: val.mode,
+        path: name,
+        oid: val.oid,
+        type: 'blob',
+      });
+    } else {
+      const subtreeOid = await buildTreeFromStructure(val);
+      rootEntries.push({
+        mode: '040000',
+        path: name,
+        oid: subtreeOid,
+        type: 'tree',
+      });
+    }
+  }
+
+  return rootEntries;
 }
 
 // Create a commit using isomorphic-git
@@ -542,52 +735,8 @@ async function gitCreateCommit(
       // No HEAD yet - first commit
     }
 
-    // Build tree
-    const tree: any[] = [];
-
-    if (parentOid) {
-      // Start with parent tree
-      const parentCommit = await git.readCommit({
-        fs: fsFull,
-        dir: auditRepoPath,
-        oid: parentOid,
-      });
-
-      const parentTree = await git.readTree({
-        fs: fsFull,
-        dir: auditRepoPath,
-        oid: parentCommit.commit.tree,
-      });
-
-      // Add existing files that aren't being changed
-      for (const entry of parentTree.tree) {
-        if (!files.has(entry.path)) {
-          tree.push(entry);
-        }
-      }
-    }
-
-    // Add/update/delete files
-    for (const [filepath, content] of files) {
-      if (content === null) {
-        // Delete file - already handled by not including it
-        continue;
-      }
-
-      // Write blob
-      const oid = await git.writeBlob({
-        fs: fsFull,
-        dir: auditRepoPath,
-        blob: new Uint8Array(content),
-      });
-
-      tree.push({
-        mode: '100644',
-        path: filepath,
-        oid,
-        type: 'blob',
-      });
-    }
+    // Build nested tree structure
+    const tree = await buildNestedTree(files);
 
     // Write tree
     const treeOid = await git.writeTree({
@@ -650,9 +799,9 @@ async function gitCreateCommit(
 // Check if a git ref exists
 async function gitRefExists(ref: string, options?: any): Promise<boolean> {
   try {
-    await execGit(['rev-parse', '--verify', ref], options);
+    await execFileAsync('git', ['rev-parse', '--verify', ref], { cwd: auditRepoPath, ...options });
     return true;
-  } catch {
+  } catch (error) {
     return false;
   }
 }
@@ -660,17 +809,30 @@ async function gitRefExists(ref: string, options?: any): Promise<boolean> {
 // Check if a path exists in a git commit
 async function gitPathExists(p: string, ref: string = 'HEAD', options?: any): Promise<boolean> {
   try {
-    // Use type probe so trees are recognized as existing too.
-    const t = await execGit(['cat-file', '-t', `${ref}:${p}`], options);
-    return t === 'blob' || t === 'tree';
-  } catch {
+    const result = (await execFileAsync('git', ['cat-file', '-t', `${ref}:${p}`], {
+      cwd: auditRepoPath,
+      ...options,
+    })) as { stdout: string | Buffer };
+    const type =
+      typeof result.stdout === 'string' ? result.stdout.trim() : result.stdout.toString().trim();
+    return type === 'blob' || type === 'tree';
+  } catch (error) {
     return false;
   }
 }
 
 // Get file content from git - robust implementation
 async function gitCatFile(commitRef: string, filepath: string): Promise<Buffer> {
-  return await gitReadFile(commitRef, filepath);
+  try {
+    const result = (await execFileAsync('git', ['cat-file', 'blob', `${commitRef}:${filepath}`], {
+      cwd: auditRepoPath,
+      encoding: 'buffer',
+      maxBuffer: 100 * 1024 * 1024,
+    })) as { stdout: Buffer };
+    return result.stdout;
+  } catch (error) {
+    throw new Error(`Failed to read file ${filepath} from ${commitRef}: ${error}`);
+  }
 }
 
 // Get file metadata from git
@@ -3646,7 +3808,7 @@ function registerAllTools(srv: McpServer) {
             },
           },
         ],
-        commits,
+        { commits, term: args.term, count: commits.length },
         text,
       );
       if (_extra.progressToken) {
@@ -4327,22 +4489,24 @@ function registerAllTools(srv: McpServer) {
       },
     },
     async (args: any, _extra: any) => {
-      if (!args.func && (!args.start || !args.end)) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          'Must specify either func or start/end line numbers',
-        );
-      }
+      // Map the input parameters to what gitLogL expects
+      const mappedArgs = {
+        file: args.path,
+        start: args.start_line,
+        end: args.end_line || args.start_line,
+        limit: args.limit,
+        offset: args.offset,
+      };
 
-      if (args.start && args.end && args.start > args.end) {
+      if (mappedArgs.start && mappedArgs.end && mappedArgs.start > mappedArgs.end) {
         return {
           content: [
             {
               type: 'text',
-              text: `${DomainErrorCode.RANGE_INVALID}: Start line ${args.start} is greater than end line ${args.end}`,
+              text: `${DomainErrorCode.RANGE_INVALID}: Start line ${mappedArgs.start} is greater than end line ${mappedArgs.end}`,
             },
           ],
-          structuredContent: { file: args.file, trace: [], nextCursor: null },
+          structuredContent: { file: mappedArgs.file, trace: [], nextCursor: null },
           isError: true,
         };
       }
@@ -4350,15 +4514,15 @@ function registerAllTools(srv: McpServer) {
       if (_extra.progressToken) {
         await sendProgressNotification(_extra.progressToken, 20, 100, 'Tracing lines...');
       }
-      const result = await gitLogL(args);
-      const text = `Found ${result.trace.length} commits affecting specified lines in ${args.file}`;
+      const result = await gitLogL(mappedArgs);
+      const text = `Found ${result.trace.length} commits affecting specified lines in ${mappedArgs.file}`;
 
       const resp = createToolResponse(
         [
           {
             type: 'resource',
             resource: {
-              uri: `resource://unfugit/trace/${encodeURIComponent(args.file.replace(/\//g, '-'))}.json`,
+              uri: `resource://unfugit/trace/${encodeURIComponent(mappedArgs.file.replace(/\//g, '-'))}.json`,
               mimeType: 'application/json',
               text: JSON.stringify(result),
               _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
