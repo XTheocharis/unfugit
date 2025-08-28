@@ -186,8 +186,9 @@ rl.on('line', (line) => {
         testResults.push(`✅ ${testName}: ${count} matches`);
       }
     }
-  } catch (_e) {
-    // Not JSON, likely a notification
+  } catch (e) {
+    // Not JSON, likely a notification or parse error
+    console.error('Parse error:', e.message);
   }
 });
 

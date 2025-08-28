@@ -93,10 +93,11 @@ rl.on('line', (line) => {
       }
       console.error(`\n✅ Full response: ${resultStr}`);
     }
-  } catch (_e) {
+  } catch (e) {
     // Not JSON, likely a notification
     if (!line.includes('notification') && !line.includes('list_changed')) {
       console.error(`📢 ${line}`);
+      console.error('Parse error:', e.message);
     }
   }
 });

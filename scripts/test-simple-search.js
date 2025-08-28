@@ -53,8 +53,9 @@ rl.on('line', (line) => {
   try {
     const response = JSON.parse(line);
     console.error('Response:', JSON.stringify(response, null, 2));
-  } catch (_e) {
+  } catch (e) {
     console.error('Non-JSON:', line);
+    console.error('Parse error:', e.message);
   }
 });
 

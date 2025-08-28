@@ -176,9 +176,10 @@ rl.on('line', (line) => {
     } else if (response.result) {
       console.error(`Success: ${JSON.stringify(response.result, null, 2).substring(0, 500)}...`);
     }
-  } catch (_e) {
+  } catch (e) {
     // Not JSON, likely a notification
     console.error(`Notification: ${line}`);
+    console.error('Parse error:', e.message);
   }
 });
 

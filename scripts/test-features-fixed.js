@@ -188,8 +188,9 @@ rl.on('line', (line) => {
       }
       console.error(`✅ Success: ${resultStr}`);
     }
-  } catch (_e) {
+  } catch (e) {
     // Not JSON, likely a notification
+    console.error('Parse error:', e.message);
     if (line.includes('"level":"error"')) {
       console.error(`❌ Notification: ${line}`);
     } else {

@@ -6,7 +6,6 @@
  * actual git repositories as if they were audit repositories.
  */
 
-import { spawn } from 'child_process';
 import { resolve, join, basename } from 'path';
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
@@ -78,7 +77,7 @@ class GitRepoTester {
       this.testResults.summary.total++;
       this.log('PASS', `${name} completed`);
       return result;
-    } catch (_error) {
+    } catch (error) {
       this.testResults.tests.push({
         name,
         status: 'failed',
@@ -99,8 +98,8 @@ class GitRepoTester {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'ignore']
       }).trim();
-    } catch (_error) {
-      throw new Error(`Git command failed: ${cmd}`);
+    } catch (error) {
+      throw new Error(`Git command failed: ${cmd} - ${error.message}`);
     }
   }
 
@@ -224,8 +223,9 @@ class GitRepoTester {
           const output = this.gitCmd(`show ${format} HEAD`);
           tests.push({ format, success: true, hasOutput: output.length > 0 });
         }
-      } catch (_e) {
-        // Some formats might fail
+      } catch (e) {
+        // Some formats might fail, log the error
+        this.log('DEBUG', `Format parsing failed: ${e.message}`);
       }
       
       this.log('RESULT', `Show tests: ${tests.filter(t => t.success).length}/${tests.length} successful`);

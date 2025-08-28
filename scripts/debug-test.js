@@ -8,7 +8,9 @@ async function debugTest() {
   const testDir = join(tmpdir(), 'unfugit-debug-test');
   try {
     rmSync(testDir, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    // Directory might not exist, ignore error
+  }
   mkdirSync(testDir, { recursive: true });
 
   console.log('Test directory:', testDir);

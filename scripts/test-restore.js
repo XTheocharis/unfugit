@@ -115,10 +115,11 @@ rl.on('line', (line) => {
       }
       console.error(`✅ Success: ${resultStr}`);
     }
-  } catch (_e) {
+  } catch (e) {
     // Not JSON, likely a notification
     if (!line.includes('notification')) {
       console.error(`📢 ${line}`);
+      console.error('Parse error:', e.message);
     }
   }
 });

@@ -8,7 +8,7 @@
 import { spawn } from 'child_process';
 import { resolve, join, basename } from 'path';
 import { existsSync } from 'fs';
-import { readdir } from 'fs/promises';
+// Remove unused import
 
 const colors = {
   reset: '\x1b[0m',
@@ -94,8 +94,9 @@ class QuickTest {
             resolve(message.result);
           }
         }
-      } catch (_e) {
-        // Ignore non-JSON
+      } catch (e) {
+        // Ignore non-JSON responses
+        this.log('DEBUG', `Parse error: ${e.message}`);
       }
     }
   }
@@ -174,7 +175,7 @@ class QuickTest {
         }
       }
 
-    } catch (_error) {
+    } catch (error) {
       stats.errors.push(error.message);
     }
 
@@ -198,7 +199,7 @@ async function testRepository(repoPath) {
     const stats = await test.getQuickStats();
     await test.stop();
     return stats;
-  } catch (_error) {
+  } catch (error) {
     await test.stop();
     return {
       path: repoPath,

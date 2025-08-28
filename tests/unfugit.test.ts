@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawn, ChildProcess } from 'child_process';
-import { mkdir, writeFile, rm, readdir } from 'fs/promises';
+import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { existsSync } from 'fs';
@@ -63,8 +63,8 @@ class McpClient {
           if (response.jsonrpc && response.id !== undefined && response.id !== null) {
             this.handleResponse(response);
           }
-        } catch (e) {
-          if (this.debug) console.log('Failed to parse:', line);
+        } catch (parseError) {
+          if (this.debug) console.log('Failed to parse:', line, parseError);
         }
       }
     }

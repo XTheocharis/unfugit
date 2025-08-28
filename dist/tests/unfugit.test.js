@@ -43,9 +43,9 @@ class McpClient {
                         this.handleResponse(response);
                     }
                 }
-                catch (e) {
+                catch (parseError) {
                     if (this.debug)
-                        console.log('Failed to parse:', line);
+                        console.log('Failed to parse:', line, parseError);
                 }
             }
         }

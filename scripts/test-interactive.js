@@ -130,8 +130,11 @@ class InteractiveUnfugitClient {
             this.log(`[${level}] ${data.message || JSON.stringify(data)}`, colors.yellow);
           }
         }
-      } catch (_e) {
+      } catch (parseError) {
         // Ignore non-JSON lines
+        if (this.debug) {
+          console.error('Parse error:', parseError.message);
+        }
       }
     }
   }
@@ -159,15 +162,11 @@ class InteractiveUnfugitClient {
   }
 
   async callTool(toolName, args = {}) {
-    try {
-      const result = await this.sendRequest('tools/call', {
-        name: toolName,
-        arguments: args
-      });
-      return result;
-    } catch (_error) {
-      throw error;
-    }
+    const result = await this.sendRequest('tools/call', {
+      name: toolName,
+      arguments: args
+    });
+    return result;
   }
 
   printHelp() {
@@ -211,7 +210,7 @@ class InteractiveUnfugitClient {
           });
           break;
           
-        case 'history':
+        case 'history': {
           const limit = parseInt(parts[1]) || 10;
           const history = await this.callTool('unfugit_history', { limit });
           this.log(`\n=== Commit History (last ${limit}) ===`, colors.bright);
@@ -224,8 +223,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'stats':
+        case 'stats': {
           const stats = await this.callTool('unfugit_stats');
           this.log('\n=== Repository Statistics ===', colors.bright);
           if (stats.content) {
@@ -236,8 +236,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'diff':
+        case 'diff': {
           if (parts.length < 3) {
             this.log('Usage: diff <from_ref> <to_ref>', colors.red);
             break;
@@ -256,8 +257,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'show':
+        case 'show': {
           if (!parts[1]) {
             this.log('Usage: show <ref>', colors.red);
             break;
@@ -275,8 +277,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'search':
+        case 'search': {
           if (!parts[1]) {
             this.log('Usage: search <term>', colors.red);
             break;
@@ -295,8 +298,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'get':
+        case 'get': {
           if (parts.length < 3) {
             this.log('Usage: get <ref> <path>', colors.red);
             break;
@@ -314,8 +318,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'timeline':
+        case 'timeline': {
           if (!parts[1]) {
             this.log('Usage: timeline <path>', colors.red);
             break;
@@ -333,8 +338,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'ignores':
+        case 'ignores': {
           const ignores = await this.callTool('unfugit_ignores', {
             mode: 'list'
           });
@@ -347,8 +353,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'resources':
+        case 'resources': {
           const resources = await this.sendRequest('resources/list', {});
           this.log('\n=== Available Resources ===', colors.bright);
           if (resources.resources) {
@@ -358,8 +365,9 @@ class InteractiveUnfugitClient {
             });
           }
           break;
+        }
           
-        case 'raw':
+        case 'raw': {
           if (parts.length < 2) {
             this.log('Usage: raw <tool_name> [json_args]', colors.red);
             break;
@@ -369,14 +377,16 @@ class InteractiveUnfugitClient {
           if (parts.length > 2) {
             try {
               args = JSON.parse(parts.slice(2).join(' '));
-            } catch (_e) {
+            } catch (e) {
               this.log('Invalid JSON arguments', colors.red);
+              this.log('Parse error:', e.message, colors.dim);
               break;
             }
           }
           const rawResult = await this.callTool(toolName, args);
           console.log(JSON.stringify(rawResult, null, 2));
           break;
+        }
           
         case 'exit':
         case 'quit':
@@ -387,7 +397,7 @@ class InteractiveUnfugitClient {
         default:
           this.log(`Unknown command: ${command}. Type 'help' for available commands.`, colors.red);
       }
-    } catch (_error) {
+    } catch (error) {
       this.log(`Error: ${error.message}`, colors.red);
     }
   }
@@ -432,7 +442,7 @@ async function main() {
   try {
     await client.start();
     await client.startInteractive();
-  } catch (_error) {
+  } catch (error) {
     console.error(`${colors.red}Error: ${error.message}${colors.reset}`);
     process.exit(1);
   }

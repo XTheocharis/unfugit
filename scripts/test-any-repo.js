@@ -11,7 +11,7 @@
 import { spawn } from 'child_process';
 import { resolve, join } from 'path';
 import { existsSync } from 'fs';
-import { readdir } from 'fs/promises';
+// Removed unused readdir import
 
 const colors = {
   reset: '\x1b[0m',
@@ -163,8 +163,9 @@ class UnfugitTester {
         } else if (message.method === 'notifications/resources/updated') {
           this.log('DEBUG', 'Resources updated notification received');
         }
-      } catch (_e) {
+      } catch (parseError) {
         // Not JSON, might be server startup message
+        this.log('DEBUG', `Parse error: ${parseError.message}`);
         if (!line.includes('MCP server running')) {
           this.log('DEBUG', `Non-JSON output: ${line}`);
         }
@@ -213,7 +214,7 @@ class UnfugitTester {
       }
       
       return result;
-    } catch (_error) {
+    } catch (error) {
       this.log('ERROR', `Tool call failed: ${error.message}`);
       return null;
     }
@@ -243,9 +244,9 @@ class UnfugitTester {
 
     // Test 3: Get statistics
     this.log('TEST', 'Test 3: Get repository statistics');
-    const stats = await this.callTool('unfugit_stats');
-    if (stats?.structuredContent) {
-      const s = stats.structuredContent;
+    const detailedStats = await this.callTool('unfugit_stats');
+    if (detailedStats?.structuredContent) {
+      const s = detailedStats.structuredContent;
       this.log('RESULT', `Commits: ${s.audit_commits}, Files: ${s.unique_files_tracked}, Role: ${s.session_role}`);
     }
 
@@ -364,7 +365,7 @@ async function main() {
     await tester.start();
     await new Promise(resolve => setTimeout(resolve, 2000)); // Let server stabilize
     await tester.runTests();
-  } catch (_error) {
+  } catch (error) {
     console.error(`${colors.red}Error: ${error.message}${colors.reset}`);
     process.exit(1);
   } finally {
