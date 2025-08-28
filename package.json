@@ -1,0 +1,51 @@
+{
+  "name": "unfugit",
+  "version": "1.0.0",
+  "description": "Unbreak Now: Fallback Using Git - MCP server for append-only git audit trails",
+  "main": "dist/src/unfugit.js",
+  "type": "module",
+  "bin": {
+    "unfugit": "./dist/src/unfugit.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "npm run build && node dist/unfugit.js",
+    "test": "vitest --config config/vitest.config.ts",
+    "test:ui": "vitest --config config/vitest.config.ts --ui",
+    "test:run": "vitest --config config/vitest.config.ts run",
+    "test:coverage": "vitest --config config/vitest.config.ts run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --config config/eslint.config.js .",
+    "lint:fix": "eslint --config config/eslint.config.js . --fix",
+    "format": "prettier --config config/.prettierrc.json --ignore-path config/.prettierignore --write \"**/*.{ts,json,md}\"",
+    "format:check": "prettier --config config/.prettierrc.json --ignore-path config/.prettierignore --check \"**/*.{ts,json,md}\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "chokidar": "^4.0.3",
+    "isomorphic-git": "^1.33.1",
+    "mime-types": "^3.0.1",
+    "minimatch": "^10.0.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^24.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.41.0",
+    "@typescript-eslint/parser": "^8.41.0",
+    "@vitest/ui": "^3.2.4",
+    "eslint": "^9.34.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
