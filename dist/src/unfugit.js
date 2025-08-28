@@ -228,7 +228,7 @@ async function execGit(args, options) {
                 });
                 return typeof result.stdout === 'string' ? result.stdout : result.stdout.toString();
             }
-            catch (error) {
+            catch {
                 await sendLoggingMessage('warning', `Git command failed: ${command}`);
                 return '';
             }
@@ -256,20 +256,6 @@ async function gitInit() {
         bare: true,
         defaultBranch: 'main',
     });
-}
-// Check if repository exists
-async function gitRepoExists() {
-    try {
-        await git.resolveRef({
-            fs: fsFull,
-            dir: auditRepoPath,
-            ref: 'HEAD',
-        });
-        return true;
-    }
-    catch {
-        return false;
-    }
 }
 // Get commit SHA for a ref
 async function gitResolveRef(ref) {
@@ -366,9 +352,8 @@ async function gitGetObjectType(ref, filepath) {
             // If isomorphic-git can't read the tree due to unsafe paths,
             // fall back to using native git command
             console.error(`Falling back to native git due to: ${treeError}`);
-            const { execFile } = require('child_process').promises;
             try {
-                const result = await execFile('git', ['cat-file', '-t', `${ref}:${filepath}`], {
+                const result = await execFileAsync('git', ['cat-file', '-t', `${ref}:${filepath}`], {
                     cwd: auditRepoPath,
                 });
                 const type = result.stdout.trim();
@@ -380,7 +365,7 @@ async function gitGetObjectType(ref, filepath) {
         }
         return null;
     }
-    catch (error) {
+    catch {
         return null;
     }
 }
@@ -399,14 +384,14 @@ async function gitStatus(workdir) {
             if (head !== 1 || workdir !== 1 || stage !== 1) {
                 // File has changes
                 let status = '';
-                if (head === 0 && workdir === 2)
+                if (head === 0 && workdir === 2 && stage === 2)
+                    status = 'A '; // Added (staged)
+                else if (head === 0 && workdir === 2)
                     status = '??'; // Untracked
                 else if (head === 1 && workdir === 0)
                     status = ' D'; // Deleted
                 else if (head === 1 && workdir === 2)
                     status = ' M'; // Modified
-                else if (head === 0 && workdir === 2 && stage === 2)
-                    status = 'A '; // Added
                 if (status) {
                     result += `${status} ${filepath}\n`;
                 }
@@ -690,7 +675,7 @@ async function gitRefExists(ref, options) {
         await execFileAsync('git', ['rev-parse', '--verify', ref], { cwd: auditRepoPath, ...options });
         return true;
     }
-    catch (error) {
+    catch {
         return false;
     }
 }
@@ -704,7 +689,7 @@ async function gitPathExists(p, ref = 'HEAD', options) {
         const type = typeof result.stdout === 'string' ? result.stdout.trim() : result.stdout.toString().trim();
         return type === 'blob' || type === 'tree';
     }
-    catch (error) {
+    catch {
         return false;
     }
 }
@@ -720,29 +705,6 @@ async function gitCatFile(commitRef, filepath) {
     }
     catch (error) {
         throw new Error(`Failed to read file ${filepath} from ${commitRef}: ${error}`);
-    }
-}
-// Get file metadata from git
-async function gitGetFileMetadata(commit, path) {
-    try {
-        // Use NUL-safe raw output; header and path are separated by a TAB
-        const output = await execGitRaw(['ls-tree', '-z', commit, '--', path]);
-        if (!output) {
-            throw new Error('No output from git ls-tree');
-        }
-        const tab = output.indexOf('\t');
-        if (tab === -1) {
-            throw new Error('Could not parse git ls-tree output');
-        }
-        const header = output.slice(0, tab); // "<mode> <type> <objectId>"
-        const [mode, _type, objectId] = header.split(/\s+/);
-        if (!mode || !objectId) {
-            throw new Error('Could not parse git ls-tree output');
-        }
-        return { mode, objectId };
-    }
-    catch (error) {
-        throw new Error(`Failed to get file metadata: ${error.message}`);
     }
 }
 // List paths in a commit (NUL-safe)
@@ -845,7 +807,7 @@ async function getRecentCommits(count, offset = 0, options) {
     }
 }
 // Corrected git log implementation
-async function gitLog(args, options) {
+async function gitLog(args, _options) {
     try {
         // Parse git log arguments
         let limit = 50;
@@ -934,7 +896,7 @@ async function gitLog(args, options) {
                     commitInfo.insertions = commitInfo.filesChanged * 10;
                 }
             }
-            catch (error) {
+            catch {
                 // Stats retrieval failed, keep defaults
             }
             results.push(commitInfo);
@@ -1007,7 +969,7 @@ async function getCommitFileChanges(fromRef, toRef) {
             }
         }
     }
-    catch (error) {
+    catch {
         // Ignore errors in stats calculation
     }
     return result;
@@ -1062,23 +1024,25 @@ async function gitDiff(args) {
             case 'name-only':
                 return filteredFiles.join('\n');
             case 'stat':
-            case 'numstat':
+            case 'numstat': {
                 let statOutput = '';
                 for (const file of filteredFiles) {
                     // Simple stat output - would need proper diff algorithm for accurate counts
                     statOutput += `10\t5\t${file}\n`;
                 }
                 return statOutput;
+            }
             case 'shortstat':
                 return ` ${filteredFiles.length} files changed, ${changes.insertions} insertions(+), ${changes.deletions} deletions(-)`;
-            case 'raw':
+            case 'raw': {
                 let rawOutput = '';
                 for (const file of filteredFiles) {
                     rawOutput += `:100644 100644 0000000 0000000 M\t${file}\n`;
                 }
                 return rawOutput;
+            }
             case 'patch':
-            default:
+            default: {
                 // Generate unified diff patch
                 let patch = '';
                 // If no files changed, return empty patch
@@ -1130,6 +1094,7 @@ async function gitDiff(args) {
                     }
                 }
                 return patch;
+            }
         }
     }
     catch (error) {
@@ -1155,7 +1120,7 @@ async function gitLogPickaxe(args) {
             try {
                 searchPattern = new RegExp(args.term, args.ignoreCase ? 'gi' : 'g');
             }
-            catch (e) {
+            catch {
                 throw new Error(`Invalid regex pattern: ${args.term}`);
             }
         }
@@ -1711,24 +1676,6 @@ function isPathEscaping(p) {
     const normalized = path.normalize(p);
     return normalized.startsWith('..') || path.isAbsolute(normalized);
 }
-function normalizePaths(paths) {
-    if (!paths)
-        return [];
-    return paths.map((p) => path.normalize(p).replace(/\\/g, '/')).sort();
-}
-function pathsEqual(paths1, paths2) {
-    const norm1 = normalizePaths(paths1);
-    const norm2 = normalizePaths(paths2);
-    if (norm1.length !== norm2.length)
-        return false;
-    return norm1.every((p, i) => p === norm2[i]);
-}
-// Case-insensitive filesystem collision detection
-async function checkIgnoreCollision(pattern) {
-    const existingPatterns = await getCustomIgnores();
-    const lowerPattern = pattern.toLowerCase();
-    return existingPatterns.some((existing) => existing.toLowerCase() === lowerPattern && existing !== pattern);
-}
 // --- Session and Role Management ---
 function onLeaseAcquired(leaseInfo) {
     const oldRole = sessionState.role;
@@ -1985,11 +1932,6 @@ async function saveMaintenanceState() {
         lastFullFsck: maintenanceState.lastFullFsck?.toISOString() || null,
     }, null, 2));
 }
-async function performStartupFsck() {
-    // Skip fsck - isomorphic-git manages its own integrity
-    maintenanceState.lastFsck = new Date();
-    await saveMaintenanceState();
-}
 async function performMaintenance(full = false) {
     if (sessionState.role !== 'active') {
         return;
@@ -2236,7 +2178,7 @@ async function getCustomIgnores() {
 async function manageIgnores(args) {
     await loadCustomIgnores();
     switch (args.mode) {
-        case 'check':
+        case 'check': {
             let rules;
             switch (args.which) {
                 case 'defaults':
@@ -2255,6 +2197,7 @@ async function manageIgnores(args) {
                 which: args.which ?? 'effective',
                 rules,
             };
+        }
         case 'add': {
             const normalizedPatterns = args.patterns.map((p) => p.replace(/\\/g, '/'));
             const existingSet = new Set(customIgnores);
@@ -2363,7 +2306,7 @@ async function scanProjectFiles(dir, ignorePatterns) {
                 }
             }
         }
-        catch (error) {
+        catch {
             // Skip directories that can't be read
         }
     }
@@ -3442,7 +3385,7 @@ function registerAllTools(srv) {
         title: 'Force Commit',
         description: 'Force an immediate commit of all current project files (testing tool)',
         inputSchema: {},
-    }, async (args, _extra) => {
+    }, async (_args, _extra) => {
         try {
             // Get all files in the project
             const ignorePatterns = await getEffectiveIgnores();
