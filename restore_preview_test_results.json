@@ -1,0 +1,1098 @@
+{
+  "timestamp": "2025-08-29T02:35:13.628Z",
+  "summary": {
+    "total_tests": 22,
+    "successful": 22,
+    "failed": 0,
+    "preview_tokens_generated": 0,
+    "safety_checks_triggered": 0
+  },
+  "test_results": {
+    "successful": [
+      {
+        "test": "1. Single file from recent commit",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "diff-test-a.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"diff-test-a.txt\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"611e3d9b-cda8-4b3e-8497-03523ad8800a\"}",
+                "_meta": {
+                  "size": 151
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "diff-test-a.txt"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "611e3d9b-cda8-4b3e-8497-03523ad8800a"
+          }
+        }
+      },
+      {
+        "test": "2. Multiple files from commit",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "diff-test-a.txt",
+            "diff-test-file1.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 2 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"diff-test-a.txt\",\"diff-test-file1.txt\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"244b0afa-c917-4de1-bc93-bad2f3eebf7f\"}",
+                "_meta": {
+                  "size": 173
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "diff-test-a.txt",
+                "diff-test-file1.txt"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "244b0afa-c917-4de1-bc93-bad2f3eebf7f"
+          }
+        }
+      },
+      {
+        "test": "3. Entire commit restore",
+        "params": {
+          "commit": "HEAD~1"
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"92de0a3c-1c9b-4e41-8bdf-6d8b5463dd56\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "92de0a3c-1c9b-4e41-8bdf-6d8b5463dd56"
+          }
+        }
+      },
+      {
+        "test": "4. File that exists currently",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"README.md\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"a28172e6-ed58-49bb-ad43-da432441a788\"}",
+                "_meta": {
+                  "size": 145
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "README.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "a28172e6-ed58-49bb-ad43-da432441a788"
+          }
+        }
+      },
+      {
+        "test": "5. File that does not exist currently",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "nonexistent-file.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"8ea853c1-52b0-4d0d-ace5-7f81de4e60da\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "8ea853c1-52b0-4d0d-ace5-7f81de4e60da"
+          }
+        }
+      },
+      {
+        "test": "6. Binary file restore",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "test-binary.bin"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"test-binary.bin\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"c1985417-94f2-4af4-b677-f39a74db1575\"}",
+                "_meta": {
+                  "size": 151
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "test-binary.bin"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "c1985417-94f2-4af4-b677-f39a74db1575"
+          }
+        }
+      },
+      {
+        "test": "7. File in subdirectory",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "subdir/test-sub.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"97716219-9ebd-4fcf-8b9f-9a348c1096f8\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "97716219-9ebd-4fcf-8b9f-9a348c1096f8"
+          }
+        }
+      },
+      {
+        "test": "8. Directory path",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "subdir/"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"ef794042-4c5f-4a8b-868a-147e0cd65b70\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "ef794042-4c5f-4a8b-868a-147e0cd65b70"
+          }
+        }
+      },
+      {
+        "test": "9. Deleted file restore",
+        "params": {
+          "commit": "HEAD~5",
+          "paths": [
+            "some-deleted-file.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~5: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~5.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"b4d1c106-a822-4375-bad0-6a591eb02a33\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~5.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~5\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "b4d1c106-a822-4375-bad0-6a591eb02a33"
+          }
+        }
+      },
+      {
+        "test": "10. Invalid commit ref",
+        "params": {
+          "commit": "invalid-commit-hash",
+          "paths": [
+            "README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "COMMIT_NOT_FOUND: Commit invalid-commit-hash not found"
+            }
+          ],
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_create": [],
+              "will_delete": []
+            },
+            "totalBytes": 0,
+            "confirm_token": ""
+          },
+          "isError": true
+        }
+      },
+      {
+        "test": "11. Non-existent file in valid commit",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "totally-fake-file.xyz"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"751c109e-7248-4650-ae41-6e5ae325575f\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "751c109e-7248-4650-ae41-6e5ae325575f"
+          }
+        }
+      },
+      {
+        "test": "12. Empty paths array",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": []
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 0 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"3df4415f-f312-4d8b-a5c2-12886d2766f0\"}",
+                "_meta": {
+                  "size": 134
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "3df4415f-f312-4d8b-a5c2-12886d2766f0"
+          }
+        }
+      },
+      {
+        "test": "13. Special characters in filename",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "test@#$%^&()_+.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"test@#$%^&()_+.txt\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"a50fbef1-6f02-401e-a0d2-bd0b4a3ceb38\"}",
+                "_meta": {
+                  "size": 154
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "test@#$%^&()_+.txt"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "a50fbef1-6f02-401e-a0d2-bd0b4a3ceb38"
+          }
+        }
+      },
+      {
+        "test": "14. File with spaces",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "test file with spaces.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"test file with spaces.txt\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"9ec4ecff-8216-47ca-be8f-308cb1abe641\"}",
+                "_meta": {
+                  "size": 161
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "test file with spaces.txt"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "9ec4ecff-8216-47ca-be8f-308cb1abe641"
+          }
+        }
+      },
+      {
+        "test": "15. UTF-8 filename",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "test-файл-测试.txt"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"test-файл-测试.txt\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"637f932e-c7eb-4728-9edb-1e0717ffbe54\"}",
+                "_meta": {
+                  "size": 160
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "test-файл-测试.txt"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "637f932e-c7eb-4728-9edb-1e0717ffbe54"
+          }
+        }
+      },
+      {
+        "test": "16.1. Multiple preview operation 1",
+        "params": {
+          "commit": "HEAD~0",
+          "paths": [
+            "README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~0: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~0.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"README.md\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"25069448-ecc7-4839-b34c-30f195ccefcc\"}",
+                "_meta": {
+                  "size": 145
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~0.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~0\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "README.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "25069448-ecc7-4839-b34c-30f195ccefcc"
+          }
+        }
+      },
+      {
+        "test": "16.2. Multiple preview operation 2",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"README.md\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"4f921c13-53c5-4e83-a0c3-327c3ee09050\"}",
+                "_meta": {
+                  "size": 145
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "README.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "4f921c13-53c5-4e83-a0c3-327c3ee09050"
+          }
+        }
+      },
+      {
+        "test": "16.3. Multiple preview operation 3",
+        "params": {
+          "commit": "HEAD~2",
+          "paths": [
+            "README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~2: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~2.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"README.md\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"1a16d5f0-f9ee-4ddb-b334-6acea2233072\"}",
+                "_meta": {
+                  "size": 145
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~2.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~2\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "README.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "1a16d5f0-f9ee-4ddb-b334-6acea2233072"
+          }
+        }
+      },
+      {
+        "test": "17. Very old commit reference",
+        "params": {
+          "commit": "HEAD~50",
+          "paths": [
+            "README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~50: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~50.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"README.md\"],\"will_create\":[]},\"totalBytes\":65,\"confirm_token\":\"9d3a1a1e-04f0-4e92-aabe-c3355f6e31e4\"}",
+                "_meta": {
+                  "size": 145
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~50.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~50\n# This would restore 0 files",
+                "_meta": {
+                  "size": 65
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "README.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 65,
+            "confirm_token": "9d3a1a1e-04f0-4e92-aabe-c3355f6e31e4"
+          }
+        }
+      },
+      {
+        "test": "18. HEAD reference",
+        "params": {
+          "commit": "HEAD",
+          "paths": [
+            "CLAUDE.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"CLAUDE.md\"],\"will_create\":[]},\"totalBytes\":62,\"confirm_token\":\"9a612e11-9222-4fa8-846a-459427bb85b6\"}",
+                "_meta": {
+                  "size": 145
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD\n# This would restore 0 files",
+                "_meta": {
+                  "size": 62
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "CLAUDE.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 62,
+            "confirm_token": "9a612e11-9222-4fa8-846a-459427bb85b6"
+          }
+        }
+      },
+      {
+        "test": "19. Branch reference",
+        "params": {
+          "commit": "main",
+          "paths": [
+            "package.json"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from main: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-main.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"package.json\"],\"will_create\":[]},\"totalBytes\":62,\"confirm_token\":\"23023ee9-1221-47ff-b9c6-9ce3f515c8ff\"}",
+                "_meta": {
+                  "size": 148
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-main.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit main\n# This would restore 0 files",
+                "_meta": {
+                  "size": 62
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "package.json"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 62,
+            "confirm_token": "23023ee9-1221-47ff-b9c6-9ce3f515c8ff"
+          }
+        }
+      },
+      {
+        "test": "20. Relative path in subdirectory",
+        "params": {
+          "commit": "HEAD~1",
+          "paths": [
+            "./subdir/../README.md"
+          ]
+        },
+        "response": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Preview restore from HEAD~1: 0 modified, 0 created, 1 deleted"
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.json",
+                "mimeType": "application/json",
+                "text": "{\"impact\":{\"will_modify\":[],\"will_delete\":[\"./subdir/../README.md\"],\"will_create\":[]},\"totalBytes\":64,\"confirm_token\":\"f277ae84-352d-436a-a459-ae8f6f5e19a4\"}",
+                "_meta": {
+                  "size": 157
+                }
+              }
+            },
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "resource://unfugit/restore/preview-HEAD~1.patch",
+                "mimeType": "text/x-diff",
+                "text": "# Restore preview for commit HEAD~1\n# This would restore 0 files",
+                "_meta": {
+                  "size": 64
+                }
+              }
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "impact": {
+              "will_modify": [],
+              "will_delete": [
+                "./subdir/../README.md"
+              ],
+              "will_create": []
+            },
+            "totalBytes": 64,
+            "confirm_token": "f277ae84-352d-436a-a459-ae8f6f5e19a4"
+          }
+        }
+      }
+    ],
+    "failed": [],
+    "preview_tokens": [],
+    "safety_checks": []
+  }
+}

@@ -1,0 +1,5 @@
+Mixed content
+	with tabs
+  and spaces
+
+and empty lines

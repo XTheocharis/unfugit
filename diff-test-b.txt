@@ -1,3 +1,3 @@
-Another file CHANGED
-With content
-And more content
+Line B1
+Line B2
+Line B3

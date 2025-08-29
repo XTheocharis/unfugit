@@ -1,5 +1,5 @@
 Line 1
-Modified Line 2
+UNCOMMITTED CHANGE
 Line 3
 Changed content here
 Line 5

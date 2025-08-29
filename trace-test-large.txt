@@ -1,0 +1,19 @@
+Line 001: This is a large file for testing line tracing
+Line 002: Each line will be numbered
+Line 003: Some lines will be modified
+Line 004: Some lines will be deleted
+Line 005: Some lines will remain unchanged
+Line 006: We need a substantial number of lines
+Line 007: To test various line number scenarios
+Line 008: Including lines at the beginning
+Line 009: Lines in the middle
+Line 010: And lines at the end
+Line 011: This line HAS BEEN MODIFIED NOW
+Line 013: This line will stay the same
+Line 014: Another line that changes
+Line 015: A line that gets moved around
+Line 016: Some content here
+Line 017: More content here
+Line 018: Even more content
+Line 019: Last few lines
+Line 020: Final line of the file

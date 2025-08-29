@@ -1,0 +1,5 @@
+# unfugit custom ignore patterns
+# Use glob patterns with / as separator
+*.final
+test-final/
+**/*.verification

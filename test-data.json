@@ -1,0 +1,13 @@
+{
+  "name": "unfugit test",
+  "version": "1.0.0",
+  "features": [
+    "get",
+    "history",
+    "diff"
+  ],
+  "metadata": {
+    "created": "2025-08-29",
+    "unicode": "测试数据 🚀"
+  }
+}
