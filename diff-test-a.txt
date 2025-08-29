@@ -1,5 +1,7 @@
-Line A1
+Line A1 MODIFIED
 Line A2
+NEW LINE A2.5
 Line A3
-Original content A
+Changed content A
 Line A5
+NEW LINE A6
