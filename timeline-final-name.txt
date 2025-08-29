@@ -1,8 +1,0 @@
-This file will be renamed multiple times
-Original content
-Modification 1 before rename
-Post-rename modification 1
-Modification 2 before rename
-Post-rename modification 2
-Modification 3 before rename
-Post-rename modification 3

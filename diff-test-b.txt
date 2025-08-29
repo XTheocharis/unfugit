@@ -1,4 +1,0 @@
-Line B1 MODIFIED
-Line B2
-Line B3
-NEW LINE B4

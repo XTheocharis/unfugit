@@ -1,3 +1,0 @@
-Version 2 content
-Modified line 2
-Added line 3

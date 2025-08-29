@@ -1398,18 +1398,24 @@ async function gitShow(args) {
                     throw new Error(`${DomainErrorCode.SIZE_LIMIT_EXCEEDED}: Patch size ${Buffer.byteLength(patch, 'utf8')} exceeds limit ${args.max_bytes}`);
                 }
             }
-            if (args.output === 'stat' || args.output === 'patch') {
-                const statOutput = await execGit([...diffBase, '--numstat', '--format=', args.commit, '--']);
-                const statLines = statOutput.split('\n').filter(Boolean);
-                for (const line of statLines) {
-                    const parts = line.split('\t');
-                    if (parts.length >= 3) {
-                        const added = parts[0] === '-' ? 0 : parseInt(parts[0]) || 0;
-                        const removed = parts[1] === '-' ? 0 : parseInt(parts[1]) || 0;
-                        stats.files++;
-                        stats.insertions += added;
-                        stats.deletions += removed;
-                    }
+            // Always calculate stats regardless of output format
+            const statArgs = ['show', '--numstat', '--format=', args.commit];
+            if (args.paths && args.paths.length > 0) {
+                statArgs.push('--', ...args.paths);
+            }
+            else {
+                statArgs.push('--');
+            }
+            const statOutput = await execGit(statArgs);
+            const statLines = statOutput.split('\n').filter(Boolean);
+            for (const line of statLines) {
+                const parts = line.split('\t');
+                if (parts.length >= 3) {
+                    const added = parts[0] === '-' ? 0 : parseInt(parts[0]) || 0;
+                    const removed = parts[1] === '-' ? 0 : parseInt(parts[1]) || 0;
+                    stats.files++;
+                    stats.insertions += added;
+                    stats.deletions += removed;
                 }
             }
         }
@@ -2677,61 +2683,183 @@ function registerAllTools(srv) {
             }
             offset = cursorData.offset;
         }
+        else if (args.offset) {
+            offset = Math.max(0, parseInt(args.offset) || 0);
+        }
         if (_extra.progressToken) {
             await sendProgressNotification(_extra.progressToken, 20, 100, 'Enumerating commits...');
         }
-        const allCommits = await gitLog({ ...args, offset });
-        const commits = allCommits.slice(0, args.max_commits);
-        let nextCursor = null;
-        if (allCommits.length > args.max_commits) {
-            nextCursor = crypto.randomUUID();
-            cursorStore.set(nextCursor, {
-                offset: offset + args.max_commits,
-                created: Date.now(),
-                filters: { ...args, cursor: undefined },
-            });
+        // Build git log arguments for proper filtering and pagination
+        const gitArgs = ['log'];
+        // Handle pagination
+        if (offset > 0) {
+            gitArgs.push(`--skip=${offset}`);
         }
-        const result = { commits, nextCursor };
-        // Build a more detailed text output that includes file information
-        let text = `Found ${commits.length} commits${nextCursor ? ' (more available)' : ''}`;
-        if (commits.length > 0) {
-            text += '\n\n';
-            for (const commit of commits.slice(0, 5)) {
-                // Show first 5 commits with details
-                text += `${commit.hash.substring(0, 8)} - ${commit.message.split('\n')[0]}`;
-                if (commit.filesChanged > 0) {
-                    text += ` (${commit.filesChanged} files, +${commit.insertions}/-${commit.deletions})`;
+        // Set limit - use max_commits if provided, otherwise use limit, otherwise default to 50
+        const limit = args.max_commits || args.limit || 50;
+        gitArgs.push(`-${limit + 1}`); // Get one extra to check if there are more results
+        // Add filtering options
+        if (args.since) {
+            gitArgs.push(`--since=${args.since}`);
+        }
+        if (args.until) {
+            gitArgs.push(`--until=${args.until}`);
+        }
+        if (args.author) {
+            gitArgs.push(`--author=${args.author}`);
+        }
+        if (args.grep) {
+            gitArgs.push(`--grep=${args.grep}`);
+        }
+        if (args.merges_only) {
+            gitArgs.push('--merges');
+        }
+        if (args.no_merges) {
+            gitArgs.push('--no-merges');
+        }
+        // Add path filters if specified
+        if (args.paths && Array.isArray(args.paths) && args.paths.length > 0) {
+            gitArgs.push('--', ...args.paths);
+        }
+        // Format and numstat for file information
+        gitArgs.push('--pretty=format:%H%x1e%at%x1e%s%x1e%an%x1e%ae');
+        gitArgs.push('--numstat');
+        try {
+            const output = await execGit(gitArgs);
+            if (!output) {
+                const result = { commits: [], nextCursor: null };
+                const text = 'Found 0 commits';
+                return createToolResponse([
+                    {
+                        type: 'resource',
+                        resource: {
+                            uri: 'resource://unfugit/history/list.json',
+                            mimeType: 'application/json',
+                            text: JSON.stringify(result),
+                            _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
+                        },
+                    },
+                ], result, text);
+            }
+            // Parse the git output (same logic as getRecentCommits)
+            const lines = output.split('\n');
+            const allCommits = [];
+            let currentCommit = null;
+            let filesChanged = 0, insertions = 0, deletions = 0;
+            let files = [];
+            for (const line of lines) {
+                if (line.includes('\x1e')) {
+                    // Save previous commit
+                    if (currentCommit) {
+                        currentCommit.filesChanged = filesChanged;
+                        currentCommit.insertions = insertions;
+                        currentCommit.deletions = deletions;
+                        currentCommit.files = files;
+                        allCommits.push(currentCommit);
+                    }
+                    // Parse new commit
+                    const [hash, timestamp, subject, author, email] = line.split('\x1e');
+                    currentCommit = {
+                        hash,
+                        message: subject, // Use 'message' to match existing interface
+                        author,
+                        authorEmail: email,
+                        date: new Date(parseInt(timestamp) * 1000).toISOString(),
+                    };
+                    filesChanged = insertions = deletions = 0;
+                    files = [];
                 }
-                text += '\n';
-                // Include file names
-                if (commit.files && commit.files.length > 0) {
-                    const fileList = commit.files.slice(0, 3).join(', ');
-                    text += `  Files: ${fileList}`;
-                    if (commit.files.length > 3) {
-                        text += ` and ${commit.files.length - 3} more`;
+                else if (line.trim() && currentCommit) {
+                    // Parse numstat line
+                    const parts = line.split('\t');
+                    if (parts.length >= 3) {
+                        const added = parts[0] === '-' ? 0 : parseInt(parts[0]) || 0;
+                        const removed = parts[1] === '-' ? 0 : parseInt(parts[1]) || 0;
+                        filesChanged++;
+                        insertions += added;
+                        deletions += removed;
+                        files.push(parts[2]);
+                    }
+                }
+            }
+            // Save last commit
+            if (currentCommit) {
+                currentCommit.filesChanged = filesChanged;
+                currentCommit.insertions = insertions;
+                currentCommit.deletions = deletions;
+                currentCommit.files = files;
+                allCommits.push(currentCommit);
+            }
+            // Handle pagination - take only the requested amount and check if more exist
+            const hasMore = allCommits.length > limit;
+            const commits = hasMore ? allCommits.slice(0, limit) : allCommits;
+            let nextCursor = null;
+            if (hasMore && args.max_commits) {
+                // Only create cursor if max_commits was specified (cursor pagination mode)
+                nextCursor = crypto.randomUUID();
+                cursorStore.set(nextCursor, {
+                    offset: offset + limit,
+                    created: Date.now(),
+                    filters: { ...args, cursor: undefined, offset: undefined },
+                });
+            }
+            const result = { commits, nextCursor };
+            // Build a more detailed text output that includes file information
+            let text = `Found ${commits.length} commits${nextCursor ? ' (more available)' : ''}`;
+            if (commits.length > 0) {
+                text += '\n\n';
+                for (const commit of commits.slice(0, 5)) {
+                    // Show first 5 commits with details
+                    text += `${commit.hash.substring(0, 8)} - ${commit.message.split('\n')[0]}`;
+                    if (commit.filesChanged > 0) {
+                        text += ` (${commit.filesChanged} files, +${commit.insertions}/-${commit.deletions})`;
                     }
                     text += '\n';
+                    // Include file names
+                    if (commit.files && commit.files.length > 0) {
+                        const fileList = commit.files.slice(0, 3).join(', ');
+                        text += `  Files: ${fileList}`;
+                        if (commit.files.length > 3) {
+                            text += ` and ${commit.files.length - 3} more`;
+                        }
+                        text += '\n';
+                    }
+                }
+                if (commits.length > 5) {
+                    text += `... and ${commits.length - 5} more commits`;
                 }
             }
-            if (commits.length > 5) {
-                text += `... and ${commits.length - 5} more commits`;
-            }
-        }
-        const resp = createToolResponse([
-            {
-                type: 'resource',
-                resource: {
-                    uri: 'resource://unfugit/history/list.json',
-                    mimeType: 'application/json',
-                    text: JSON.stringify(result),
-                    _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
+            const resp = createToolResponse([
+                {
+                    type: 'resource',
+                    resource: {
+                        uri: 'resource://unfugit/history/list.json',
+                        mimeType: 'application/json',
+                        text: JSON.stringify(result),
+                        _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
+                    },
                 },
-            },
-        ], result, text);
-        if (_extra.progressToken) {
-            await sendProgressNotification(_extra.progressToken, 100, 100, 'Done.');
+            ], result, text);
+            if (_extra.progressToken) {
+                await sendProgressNotification(_extra.progressToken, 100, 100, 'Done.');
+            }
+            return resp;
         }
-        return resp;
+        catch (error) {
+            await sendLoggingMessage('error', `Git log failed: ${error}`);
+            const result = { commits: [], nextCursor: null };
+            return createToolResponse([
+                {
+                    type: 'resource',
+                    resource: {
+                        uri: 'resource://unfugit/history/list.json',
+                        mimeType: 'application/json',
+                        text: JSON.stringify(result),
+                        _meta: { size: Buffer.byteLength(JSON.stringify(result), 'utf8') },
+                    },
+                },
+            ], result, 'Error retrieving commit history');
+        }
     });
     // unfugit_diff
     registerToolWithErrorHandling(srv, 'unfugit_diff', {
@@ -3417,16 +3545,24 @@ function registerAllTools(srv) {
         title: 'Server Statistics',
         description: 'Get comprehensive server and repository statistics',
         inputSchema: {
-            // Use z.preprocess to coerce string values to boolean
-            extended: z.preprocess((val) => {
-                if (typeof val === 'string') {
-                    return val === 'true' || val === '1' || val === 'yes';
-                }
-                return val;
-            }, z.boolean()).optional().default(false),
+            // Accept any type and coerce to boolean
+            extended: z.any().optional().default(false),
         },
     }, async (args, _extra) => {
-        const stats = await gatherCompleteStats(args.extended);
+        // Coerce extended parameter to boolean
+        let extended = false;
+        if (args.extended !== undefined) {
+            if (typeof args.extended === 'boolean') {
+                extended = args.extended;
+            }
+            else if (typeof args.extended === 'string') {
+                extended = ['true', '1', 'yes'].includes(args.extended.toLowerCase());
+            }
+            else if (typeof args.extended === 'number') {
+                extended = args.extended !== 0;
+            }
+        }
+        const stats = await gatherCompleteStats(extended);
         const text = `Server v${stats.version}, role: ${stats.role}, repo: ${stats.repo.total_commits} commits, ${Math.round(stats.repo.size_bytes / 1024)}KB`;
         return createToolResponse([
             {

@@ -1,2 +1,31 @@
 # unfugit custom ignore patterns
 # Use glob patterns with / as separator
+
+# Development artifacts
+*.log
+*.tmp
+*.bak
+*.backup
+debug-*
+temp/
+temp*_*.md
+
+# Test files
+test-*.cjs
+test-*.py
+test-*.js
+test-*.json
+*-test-*
+trace-test-*
+timeline-test-*
+diff-test-*
+restore-test-*
+
+# Test directories
+force-test-dir/
+timeline-test-dir/
+test@*/
+
+# Build artifacts
+**/build/**
+**/.git/**

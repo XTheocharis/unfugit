@@ -1,9 +1,0 @@
-Testing unfugit auto-commit feature
-This file was created to test the unfugit MCP server
-Timestamp: 2025-08-28 13:30:00
-
-Updated: Testing modification tracking
-This line was added to test change detection
-
-Another update to trigger commit
-Time: 16:40

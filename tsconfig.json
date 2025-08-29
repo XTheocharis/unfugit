@@ -10,11 +10,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

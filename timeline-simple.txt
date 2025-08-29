@@ -1,2 +1,0 @@
-Simple timeline test file
-Version 1

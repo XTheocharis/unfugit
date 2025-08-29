@@ -60,10 +60,10 @@ npm install
 npm run build
 
 # Run directly
-node dist/src/unfugit.js /path/to/project
+node dist/unfugit.js /path/to/project
 
 # Or add to MCP config
-claude mcp add unfugit -- node /absolute/path/to/unfugit/dist/src/unfugit.js
+claude mcp add unfugit -- node /absolute/path/to/unfugit/dist/unfugit.js
 ```
 
 ## Why Separate Audit Repository?
@@ -74,7 +74,7 @@ AI agents love deleting .git directories when things go wrong. unfugit keeps the
 
 - **Active/Passive modes**: Prevents concurrent modifications via lease-based locking
 - **File watcher**: Chokidar-based automatic commit on changes (300ms debounce)
-- **Pure JavaScript git**: Uses isomorphic-git for all operations (no git CLI dependency)
+- **Git integration**: Direct git command execution for reliable operations
 - **Resources**: Ephemeral content with 15-minute TTL
 
 ## MCP Tools
@@ -126,7 +126,7 @@ npm run lint         # Linting
 npm run format       # Code formatting
 ```
 
-The implementation is in `src/unfugit.ts` (~4000 lines). Look for `// --- Section Name ---` markers to navigate between sections.
+The implementation is in `src/unfugit.ts` (~3700 lines). Look for `// --- Section Name ---` markers to navigate between sections.
 
 ## Context
 

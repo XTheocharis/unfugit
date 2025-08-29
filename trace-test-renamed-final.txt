@@ -1,4 +1,0 @@
-Line 1: Content after rename
-Line 2: This has been MODIFIED
-Line 3: This will stay the same
-Line 5: Final line

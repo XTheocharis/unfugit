@@ -1,6 +1,0 @@
-Line 1
-UNCOMMITTED CHANGE
-Line 3
-Changed content here
-Line 5
-New Line 6

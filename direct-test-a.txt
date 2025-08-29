@@ -1,4 +1,0 @@
-Test content A
-Modified line
-New content
-Uncommitted change

@@ -2,10 +2,10 @@
   "name": "unfugit",
   "version": "1.0.0",
   "description": "Unbreak Now: Fallback Using Git - MCP server for append-only git audit trails",
-  "main": "dist/src/unfugit.js",
+  "main": "dist/unfugit.js",
   "type": "module",
   "bin": {
-    "unfugit": "./dist/src/unfugit.js"
+    "unfugit": "./dist/unfugit.js"
   },
   "scripts": {
     "build": "tsc",

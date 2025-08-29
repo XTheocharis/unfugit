@@ -1,4 +1,0 @@
-This is the original content of the test file.
-Line 2: Some important data
-Line 3: Configuration setting = value
-Line 4: End of original content
