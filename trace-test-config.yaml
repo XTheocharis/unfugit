@@ -1,0 +1,27 @@
+---
+# Configuration file for line tracing tests
+app:
+  name: "Unfugit Test App"
+  version: "1.0.1"
+  debug: false
+  environment: "production"
+  
+database:
+  host: "localhost"
+  port: 5432
+  name: "test_db"
+  username: "test_user"
+  password: "test_pass"
+  
+logging:
+  level: "info"
+  format: "json"
+  outputs:
+    - console
+    - file
+    
+features:
+  - authentication
+  - authorization
+  - caching
+  - metrics

@@ -1,8 +1,9 @@
-MODIFIED Line 1
+WORKING DIR Line 1
 Original Line 2
 NEW Line 2.5
 Original Line 3
-COMPLETELY CHANGED Line 4
+WORKING DIR CHANGE Line 4
 Original Line 5
 ADDED Line 6
 ADDED Line 7
+WORKING DIR ADDITION

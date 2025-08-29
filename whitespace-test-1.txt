@@ -1,0 +1,7 @@
+Line 1 with normal spacing CHANGED
+Line 2		with		different		tabs
+Line 3   with   different   multiple   spaces
+Line 4 trailing whitespace changed    
+Line 5 NEW CONTENT
+Line 6 added for context
+Line 7 with	mixed	whitespace   changes

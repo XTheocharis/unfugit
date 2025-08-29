@@ -1,7 +1,8 @@
-Line A1 MODIFIED
+Line A1 WORKING DIR CHANGE
 Line A2
 NEW LINE A2.5
 Line A3
-Changed content A
+Working dir content A
 Line A5
 NEW LINE A6
+WORKING DIR LINE

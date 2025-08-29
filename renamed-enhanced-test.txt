@@ -1,0 +1,17 @@
+MODIFIED file for rename test - VERSION 2
+This content has been CHANGED to test:
+- Context lines variations
+- Whitespace handling modes
+- Rename detection capabilities
+- Size limit enforcement
+- Unicode content handling
+
+Enhanced unicode: 测试文件 файл тест ファイル
+More special chars: @#$%^&*()_+-=[]{}|;:'".,<>?/
+New lines added for context testing
+Additional content for size testing
+Line with only spaces:    
+Line with tabs:			
+Mixed whitespace line:   	  	 
+
+Final line of modified content
