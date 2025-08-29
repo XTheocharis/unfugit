@@ -1,6 +1,5 @@
 Line 1
-Modified Line 2
+Line 2
 Line 3
-Changed content here
+Original content
 Line 5
-New Line 6
