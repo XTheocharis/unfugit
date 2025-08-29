@@ -1,2 +1,3 @@
-Another file
+Another file CHANGED
 With content
+And more content
