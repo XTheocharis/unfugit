@@ -1,5 +1,8 @@
-Original Line 1
+MODIFIED Line 1
 Original Line 2
+NEW Line 2.5
 Original Line 3
-Original Line 4
+COMPLETELY CHANGED Line 4
 Original Line 5
+ADDED Line 6
+ADDED Line 7

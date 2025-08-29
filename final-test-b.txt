@@ -1,3 +1,5 @@
-File B Line 1
+File B MODIFIED Line 1
 File B Line 2
 File B Line 3
+File B NEW Line 4
+File B NEW Line 5
