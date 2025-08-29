@@ -1130,7 +1130,7 @@ async function gitDiff(args: {
   try {
     // Use git command directly for more accurate diffs
     const gitArgs = ['diff'];
-    
+
     // Add output format options
     if (args.stat_only || args.output === 'stat') {
       gitArgs.push('--stat');
@@ -1143,17 +1143,17 @@ async function gitDiff(args: {
     } else if (args.output === 'raw') {
       gitArgs.push('--raw');
     }
-    
+
     // Add context lines option
     if (args.context_lines !== undefined) {
       gitArgs.push(`--unified=${args.context_lines}`);
     }
-    
+
     // Add rename detection
     if (args.rename_detection !== false) {
       gitArgs.push('-M'); // Enable rename detection by default
     }
-    
+
     // Add whitespace handling
     if (args.whitespace === 'ignore-all') {
       gitArgs.push('-w');
@@ -1162,24 +1162,24 @@ async function gitDiff(args: {
     } else if (args.whitespace === 'ignore-blank-lines') {
       gitArgs.push('--ignore-blank-lines');
     }
-    
+
     // Add the refs to compare
     gitArgs.push(`${args.base}..${args.head}`);
-    
+
     // Add path filter if specified
     if (args.path) {
       gitArgs.push('--', args.path);
     } else if (args.paths && args.paths.length > 0) {
       gitArgs.push('--', ...args.paths);
     }
-    
+
     // Execute the git diff command
     const diffOutput = await execGit(gitArgs);
-    
+
     if (!diffOutput && args.output !== 'shortstat') {
       await sendLoggingMessage('info', `No changes between ${args.base} and ${args.head}`);
     }
-    
+
     return diffOutput;
   } catch (error) {
     await sendLoggingMessage('error', `Git diff failed: ${error}`);
@@ -1194,12 +1194,14 @@ async function gitDiffSummary(base: string, head: string, paths?: string[]): Pro
     if (paths && paths.length > 0) {
       gitArgs.push('--', ...paths);
     }
-    
+
     const result = await execGit(gitArgs);
-    
+
     const lines = result.split('\n').filter(Boolean);
-    let files = 0, insertions = 0, deletions = 0;
-    
+    let files = 0,
+      insertions = 0,
+      deletions = 0;
+
     for (const line of lines) {
       const [added, deleted] = line.split('\t');
       if (added !== '-' && deleted !== '-') {
@@ -1208,7 +1210,7 @@ async function gitDiffSummary(base: string, head: string, paths?: string[]): Pro
         deletions += parseInt(deleted, 10) || 0;
       }
     }
-    
+
     return { files, insertions, deletions, renames: 0 };
   } catch {
     return { files: 0, insertions: 0, deletions: 0, renames: 0 };
@@ -3145,16 +3147,16 @@ function registerAllTools(srv: McpServer) {
 
       // Build git log arguments for proper filtering and pagination
       const gitArgs = ['log'];
-      
+
       // Handle pagination
       if (offset > 0) {
         gitArgs.push(`--skip=${offset}`);
       }
-      
+
       // Set limit - use max_commits if provided, otherwise use limit, otherwise default to 50
       const limit = args.max_commits || args.limit || 50;
       gitArgs.push(`-${limit + 1}`); // Get one extra to check if there are more results
-      
+
       // Add filtering options
       if (args.since) {
         gitArgs.push(`--since=${args.since}`);
@@ -3174,12 +3176,12 @@ function registerAllTools(srv: McpServer) {
       if (args.no_merges) {
         gitArgs.push('--no-merges');
       }
-      
+
       // Add path filters if specified
       if (args.paths && Array.isArray(args.paths) && args.paths.length > 0) {
         gitArgs.push('--', ...args.paths);
       }
-      
+
       // Format and numstat for file information
       gitArgs.push('--pretty=format:%H%x1e%at%x1e%s%x1e%an%x1e%ae');
       gitArgs.push('--numstat');
@@ -3210,7 +3212,9 @@ function registerAllTools(srv: McpServer) {
         const lines = output.split('\n');
         const allCommits: any[] = [];
         let currentCommit: any = null;
-        let filesChanged = 0, insertions = 0, deletions = 0;
+        let filesChanged = 0,
+          insertions = 0,
+          deletions = 0;
         let files: string[] = [];
 
         for (const line of lines) {
@@ -3316,12 +3320,11 @@ function registerAllTools(srv: McpServer) {
           result,
           text,
         );
-        
+
         if (_extra.progressToken) {
           await sendProgressNotification(_extra.progressToken, 100, 100, 'Done.');
         }
         return resp;
-
       } catch (error) {
         await sendLoggingMessage('error', `Git log failed: ${error}`);
         const result = { commits: [], nextCursor: null };
@@ -3358,7 +3361,10 @@ function registerAllTools(srv: McpServer) {
         output: z.enum(['patch', 'stat', 'names', 'name-only']).optional().default('patch'),
         context_lines: z.number().optional().default(3),
         rename_detection: z.boolean().optional().default(true),
-        whitespace: z.enum(['normal', 'ignore-all', 'ignore-change', 'ignore-blank-lines']).optional().default('normal'),
+        whitespace: z
+          .enum(['normal', 'ignore-all', 'ignore-change', 'ignore-blank-lines'])
+          .optional()
+          .default('normal'),
         max_bytes: z.number().optional(),
       },
     },
@@ -3414,7 +3420,7 @@ function registerAllTools(srv: McpServer) {
       let diffOutput: string;
       let exceededCallerLimit = false;
       let summary: any;
-      
+
       try {
         // Get diff output
         diffOutput = await gitDiff(args);
@@ -3429,7 +3435,7 @@ function registerAllTools(srv: McpServer) {
           throw e;
         }
       }
-      
+
       const result = { summary };
 
       const content = [
@@ -4039,19 +4045,28 @@ function registerAllTools(srv: McpServer) {
           isError: true,
         };
       }
-      
+
       // Attempt to acquire active role if not already active
       if (sessionState.role !== 'active') {
         try {
-          await sendLoggingMessage('info', 'Attempting to acquire active role for restore operation');
+          await sendLoggingMessage(
+            'info',
+            'Attempting to acquire active role for restore operation',
+          );
           const acquired = await tryBecomeActive();
           if (!acquired) {
             // In testing or single-instance mode, proceed anyway with a warning
-            await sendLoggingMessage('warning', 'Could not acquire active role, proceeding in passive mode (testing/single-instance)');
+            await sendLoggingMessage(
+              'warning',
+              'Could not acquire active role, proceeding in passive mode (testing/single-instance)',
+            );
           }
         } catch (leaseError) {
           // Log the error but proceed - useful for testing
-          await sendLoggingMessage('warning', `Lease acquisition failed: ${leaseError}. Proceeding anyway.`);
+          await sendLoggingMessage(
+            'warning',
+            `Lease acquisition failed: ${leaseError}. Proceeding anyway.`,
+          );
         }
       }
 

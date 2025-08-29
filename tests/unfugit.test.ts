@@ -31,7 +31,7 @@ class McpClient {
   private debug = false;
 
   constructor(private projectDir: string) {
-    this.process = spawn('node', ['dist/src/unfugit.js', projectDir], {
+    this.process = spawn('node', ['dist/unfugit.js', projectDir], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -173,7 +173,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: {
             name: 'test-client',
@@ -225,7 +225,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },
@@ -276,7 +276,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },
@@ -320,7 +320,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },
@@ -608,7 +608,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },
@@ -680,7 +680,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },
@@ -708,7 +708,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },
@@ -739,7 +739,7 @@ describe('unfugit MCP Server', () => {
         id: 1,
         method: 'initialize',
         params: {
-          protocolVersion: '1.0.0',
+          protocolVersion: '2025-06-18',
           capabilities: {},
           clientInfo: { name: 'test', version: '1.0.0' },
         },

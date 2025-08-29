@@ -2874,7 +2874,10 @@ function registerAllTools(srv) {
             output: z.enum(['patch', 'stat', 'names', 'name-only']).optional().default('patch'),
             context_lines: z.number().optional().default(3),
             rename_detection: z.boolean().optional().default(true),
-            whitespace: z.enum(['normal', 'ignore-all', 'ignore-change', 'ignore-blank-lines']).optional().default('normal'),
+            whitespace: z
+                .enum(['normal', 'ignore-all', 'ignore-change', 'ignore-blank-lines'])
+                .optional()
+                .default('normal'),
             max_bytes: z.number().optional(),
         },
     }, async (args, _extra) => {

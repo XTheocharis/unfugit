@@ -113,7 +113,7 @@ Audit repos stored in `~/.local/share/unfugit/repos/` (or system equivalent), or
 
 ## Technical Details
 
-- TypeScript/ES modules, MCP protocol v1.0.0
+- TypeScript/ES modules, MCP protocol version `2025-06-18` (send this in `initialize` requests)
 - Binary detection via null byte heuristic
 - Cursor-based pagination for large histories
 
