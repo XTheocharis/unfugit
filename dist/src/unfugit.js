@@ -977,125 +977,39 @@ async function getCommitFileChanges(fromRef, toRef) {
 // Corrected git diff implementation with proper rename/copy detection
 async function gitDiff(args) {
     try {
-        // Resolve refs - handle HEAD~1 syntax
-        let baseOid;
-        let headOid;
-        if (args.base === 'HEAD~1') {
-            // Get parent of HEAD
-            headOid = (await gitResolveRef('HEAD')) || (await gitResolveRef('main'));
-            if (headOid) {
-                const commit = await git.readCommit({
-                    fs: fsFull,
-                    dir: auditRepoPath,
-                    oid: headOid,
-                });
-                baseOid = commit.commit.parent[0] || null;
-            }
-            else {
-                baseOid = null;
-            }
+        // Use git command directly for more accurate diffs
+        const gitArgs = ['diff'];
+        // Add output format options
+        if (args.stat_only || args.output === 'stat') {
+            gitArgs.push('--stat');
         }
-        else {
-            baseOid = (await gitResolveRef(args.base)) || args.base;
+        else if (args.output === 'name-only') {
+            gitArgs.push('--name-only');
         }
-        if (args.head === 'HEAD') {
-            headOid = (await gitResolveRef('HEAD')) || (await gitResolveRef('main'));
+        else if (args.output === 'numstat') {
+            gitArgs.push('--numstat');
         }
-        else {
-            headOid = (await gitResolveRef(args.head)) || args.head;
+        else if (args.output === 'shortstat') {
+            gitArgs.push('--shortstat');
         }
-        if (!baseOid || !headOid) {
-            await sendLoggingMessage('warning', `Diff failed: baseOid=${baseOid}, headOid=${headOid}`);
-            return ''; // No commits to diff
+        else if (args.output === 'raw') {
+            gitArgs.push('--raw');
         }
-        // Get file changes between commits
-        const changes = await getCommitFileChanges(baseOid, headOid);
-        // Debug logging
-        await sendLoggingMessage('info', `gitDiff: baseOid=${baseOid}, headOid=${headOid}, files=${changes.files.join(',')}`);
-        // Filter by paths if specified
-        let filteredFiles = changes.files;
-        if (args.paths && args.paths.length > 0) {
-            filteredFiles = changes.files.filter((file) => (args.paths || []).some((p) => file.startsWith(p) || minimatch(file, p)));
+        // Add the refs to compare
+        gitArgs.push(`${args.base}..${args.head}`);
+        // Add path filter if specified
+        if (args.path) {
+            gitArgs.push('--', args.path);
         }
-        // Debug: Log what we're about to return
-        await sendLoggingMessage('info', `gitDiff: output=${args.output}, filteredFiles=${filteredFiles.length}`);
-        // Format output based on requested mode
-        switch (args.output) {
-            case 'name-only':
-                return filteredFiles.join('\n');
-            case 'stat':
-            case 'numstat': {
-                let statOutput = '';
-                for (const file of filteredFiles) {
-                    // Simple stat output - would need proper diff algorithm for accurate counts
-                    statOutput += `10\t5\t${file}\n`;
-                }
-                return statOutput;
-            }
-            case 'shortstat':
-                return ` ${filteredFiles.length} files changed, ${changes.insertions} insertions(+), ${changes.deletions} deletions(-)`;
-            case 'raw': {
-                let rawOutput = '';
-                for (const file of filteredFiles) {
-                    rawOutput += `:100644 100644 0000000 0000000 M\t${file}\n`;
-                }
-                return rawOutput;
-            }
-            case 'patch':
-            default: {
-                // Generate unified diff patch
-                let patch = '';
-                // If no files changed, return empty patch
-                if (filteredFiles.length === 0) {
-                    await sendLoggingMessage('info', `gitDiff: No files changed between ${args.base} and ${args.head}`);
-                    return '';
-                }
-                for (const file of filteredFiles) {
-                    patch += `diff --git a/${file} b/${file}\n`;
-                    patch += `index 0000000..0000000 100644\n`;
-                    patch += `--- a/${file}\n`;
-                    patch += `+++ b/${file}\n`;
-                    // For a real diff, we'd need to compare actual file contents
-                    // This is a simplified version
-                    try {
-                        const baseContent = await gitReadFile(baseOid, file).catch(() => null);
-                        const headContent = await gitReadFile(headOid, file).catch(() => null);
-                        if (!baseContent && headContent) {
-                            // New file
-                            const lines = headContent.toString().split('\n');
-                            patch += `@@ -0,0 +1,${lines.length} @@\n`;
-                            lines.forEach((line) => (patch += `+${line}\n`));
-                        }
-                        else if (baseContent && !headContent) {
-                            // Deleted file
-                            const lines = baseContent.toString().split('\n');
-                            patch += `@@ -1,${lines.length} +0,0 @@\n`;
-                            lines.forEach((line) => (patch += `-${line}\n`));
-                        }
-                        else if (baseContent && headContent) {
-                            // Modified file - show actual diff
-                            const baseLines = baseContent.toString().split('\n');
-                            const headLines = headContent.toString().split('\n');
-                            // Simple unified diff format (not a full diff algorithm)
-                            patch += `@@ -1,${baseLines.length} +1,${headLines.length} @@\n`;
-                            // For simplicity, show all lines as removed then added
-                            // A real diff would use a proper algorithm to minimize changes
-                            for (const line of baseLines) {
-                                patch += `-${line}\n`;
-                            }
-                            for (const line of headLines) {
-                                patch += `+${line}\n`;
-                            }
-                        }
-                    }
-                    catch {
-                        // Couldn't generate detailed diff
-                        patch += `@@ File changed @@\n`;
-                    }
-                }
-                return patch;
-            }
+        else if (args.paths && args.paths.length > 0) {
+            gitArgs.push('--', ...args.paths);
         }
+        // Execute the git diff command
+        const diffOutput = await execGit(gitArgs);
+        if (!diffOutput && args.output !== 'shortstat') {
+            await sendLoggingMessage('info', `No changes between ${args.base} and ${args.head}`);
+        }
+        return diffOutput;
     }
     catch (error) {
         await sendLoggingMessage('error', `Git diff failed: ${error}`);
@@ -1379,7 +1293,7 @@ async function gitShow(args) {
     try {
         // Get commit metadata
         const format = '%H%x1e%at%x1e%s%x1e%an%x1e%ae%x1e%cn%x1e%ce%x1e%P%x1e%B';
-        const commitOutput = await execGit(['show', '-s', `--format=${format}`, args.commit]);
+        const commitOutput = await execGit(['show', '-s', `--format=${format}`, args.commit, '--']);
         const [hash, timestamp, subject, authorName, authorEmail, committerName, committerEmail, parents, message,] = commitOutput.split('\x1e');
         const commit = {
             hash,
@@ -1416,7 +1330,7 @@ async function gitShow(args) {
                 // Optional pre-flight size check using shortstat if max_bytes provided
                 if (args.max_bytes) {
                     try {
-                        const ss = await execGit(['show', '--shortstat', '--format=', args.commit]);
+                        const ss = await execGit(['show', '--shortstat', '--format=', args.commit, '--']);
                         const sm = ss.match(/(?:(\d+)\s+insertion[^,]*)?.*?(?:(\d+)\s+deletion[^,]*)?/);
                         if (sm) {
                             const ins = sm[1] ? parseInt(sm[1]) : 0;
@@ -1437,13 +1351,13 @@ async function gitShow(args) {
                     }
                 }
                 // Preserve trailing newlines; do not trim
-                patch = await execGitRaw([...diffBase, '--format=', args.commit]);
+                patch = await execGitRaw([...diffBase, '--format=', args.commit, '--']);
                 if (args.max_bytes && Buffer.byteLength(patch, 'utf8') > args.max_bytes) {
                     throw new Error(`${DomainErrorCode.SIZE_LIMIT_EXCEEDED}: Patch size ${Buffer.byteLength(patch, 'utf8')} exceeds limit ${args.max_bytes}`);
                 }
             }
             if (args.output === 'stat' || args.output === 'patch') {
-                const statOutput = await execGit([...diffBase, '--numstat', '--format=', args.commit]);
+                const statOutput = await execGit([...diffBase, '--numstat', '--format=', args.commit, '--']);
                 const statLines = statOutput.split('\n').filter(Boolean);
                 for (const line of statLines) {
                     const parts = line.split('\t');
@@ -1820,9 +1734,11 @@ async function tryBecomeActive() {
     const acquired = await acquireLease();
     if (acquired) {
         startLeaseRenewal();
+        return true;
     }
     else {
         setTimeout(tryBecomeActive, LEASE_TTL_SECONDS * 1000);
+        return false;
     }
 }
 // Worktree lock implementation
@@ -2692,6 +2608,11 @@ function registerAllTools(srv) {
             until: z.string().optional(),
             grep: z.string().optional(),
             author: z.string().optional(),
+            cursor: z.string().optional(), // Cursor-based pagination token
+            max_commits: z.number().optional(), // Alternative to limit
+            merges_only: z.boolean().optional(), // Only show merge commits
+            no_merges: z.boolean().optional(), // Exclude merge commits
+            paths: z.array(z.string()).optional(), // Filter by file paths
         },
     }, async (args, _extra) => {
         if (args.merges_only && args.no_merges) {
@@ -3339,22 +3260,26 @@ function registerAllTools(srv) {
             idempotency_key: z.string(),
         },
     }, async (args, _extra) => {
-        // Require active role for restore operations
+        // Attempt to acquire active role if not already active
         if (sessionState.role !== 'active') {
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: `${DomainErrorCode.LEASE_NOT_HELD}: Restore operations require active role`,
+            await sendLoggingMessage('info', 'Attempting to acquire active role for restore operation');
+            const acquired = await tryBecomeActive();
+            if (!acquired) {
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `${DomainErrorCode.LEASE_NOT_HELD}: Could not acquire active role for restore operation. Another instance may be active.`,
+                        },
+                    ],
+                    structuredContent: {
+                        restored: [],
+                        backup_paths: [],
+                        idempotency_key: args.idempotency_key ?? '',
                     },
-                ],
-                structuredContent: {
-                    restored: [],
-                    backup_paths: [],
-                    idempotency_key: args.idempotency_key ?? '',
-                },
-                isError: true,
-            };
+                    isError: true,
+                };
+            }
         }
         if (_extra.progressToken) {
             await sendProgressNotification(_extra.progressToken, 10, 100, 'Applying restore...');
@@ -3429,7 +3354,7 @@ function registerAllTools(srv) {
             extended: z.boolean().optional().default(false),
         },
     }, async (args, _extra) => {
-        const stats = await gatherCompleteStats(args.detailed);
+        const stats = await gatherCompleteStats(args.extended);
         const text = `Server v${stats.version}, role: ${stats.role}, repo: ${stats.repo.total_commits} commits, ${Math.round(stats.repo.size_bytes / 1024)}KB`;
         return createToolResponse([
             {
@@ -3448,9 +3373,12 @@ function registerAllTools(srv) {
         title: 'Manage Ignore Patterns',
         description: 'View and modify file ignore patterns',
         inputSchema: {
-            mode: z.enum(['list', 'add', 'remove', 'clear', 'check']),
+            mode: z.enum(['check', 'add', 'remove', 'reset']),
             patterns: z.array(z.string()).optional(),
-            which: z.enum(['all', 'git', 'custom']).optional().default('all'),
+            which: z.enum(['effective', 'defaults', 'custom']).optional().default('effective'),
+            to: z.string().optional(), // for reset mode
+            dry_run: z.boolean().optional(),
+            position: z.enum(['prepend', 'append']).optional(),
         },
     }, async (args, _extra) => {
         // Validate pattern limits
