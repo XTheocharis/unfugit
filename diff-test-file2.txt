@@ -1,3 +1,4 @@
-First line
+First line MODIFIED
 Second line
 Third line
+Added fourth line
