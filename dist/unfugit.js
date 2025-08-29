@@ -446,6 +446,7 @@ async function gitGetStats() {
     };
 }
 // Read file content from a commit
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function gitReadFile(ref, filepath) {
     try {
         // ref could be either a ref name or a commit OID
@@ -807,6 +808,7 @@ async function getRecentCommits(count, offset = 0, options) {
     }
 }
 // Corrected git log implementation
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function gitLog(args, _options) {
     try {
         // Parse git log arguments
@@ -1054,7 +1056,7 @@ async function gitDiffSummary(base, head, paths) {
         }
         return { files, insertions, deletions, renames: 0 };
     }
-    catch (error) {
+    catch {
         return { files: 0, insertions: 0, deletions: 0, renames: 0 };
     }
 }
