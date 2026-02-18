@@ -4,8 +4,8 @@
 
 | ID    | Severity | Category                 | Summary                                                                                     |
 |-------|----------|--------------------------|---------------------------------------------------------------------------------------------|
-| SQ-1  | HIGH     | Token Count Computation  | Crush re-estimates message tokens at query time via `LENGTH()/4`; Volt stores and reads a `token_count` column |
-| SQ-2  | HIGH     | Missing Operations       | Crush Store interface omits 12+ Volt DB operations (searchMessages, regexSearch, etc.)        |
+| SQ-1  | HIGH     | Token Count Computation  | Crush re-estimates message tokens at query time via `LENGTH()/4` on raw JSON parts; Volt stores and reads a pre-computed `token_count` column |
+| SQ-2  | HIGH     | Missing Operations       | Crush Store interface omits 12+ Volt DB operations (searchMessages, regexSearch, etc.); searchSummaries IS present |
 | SQ-3  | HIGH     | Expand Summary Logic     | Crush `LCMExpandSummaryToMessages` is non-recursive (leaf only); Volt uses recursive CTE to walk DAG |
 | SQ-4  | MEDIUM   | `interface{}` Return     | `LCMGetContextTokenCount` returns `interface{}`; type assertion silently returns 0 on unexpected type |
 | SQ-5  | MEDIUM   | Batch Query N+1          | `GetMessagesByIDs` and `GetSummariesByIDs` issue N individual queries instead of batch       |
@@ -24,6 +24,8 @@
 | SQ-18 | INFO     | SearchSummaries FTS5     | Crush FTS5 JOIN uses `s.rowid = fts.rowid`; correct for content-sync FTS5 tables              |
 | SQ-19 | INFO     | Naming Convention        | Volt uses `conversation_id` (numeric); Crush uses `session_id` (string) -- intentional design divergence |
 | SQ-20 | INFO     | AppendMessage Atomicity  | Volt `appendMessage` atomically inserts message + context item in a txn with row-locking; Crush separates message creation from context append |
+| SQ-21 | MEDIUM   | Token Count Overhead     | Crush `GetContextTokenCount` SQL omits summary formatting overhead (`[Summary ID: ...]`); Volt includes it, causing compaction to trigger late in Crush |
+| SQ-22 | LOW      | Estimator Divergence     | Volt uses JS `content.length/4` (UTF-16 code units); Crush uses Go `len([]rune)/4` (Unicode code points); no practical impact for ASCII-only formatting strings |
 
 ---
 
@@ -46,9 +48,11 @@ CASE
 END AS token_count
 ```
 
-**Impact**: `LENGTH()` counts bytes, not characters. For multi-byte UTF-8 content, `LENGTH()/4` will over-estimate token counts compared to Volt's pre-computed values (which likely use a proper tokenizer or at least rune-based counting). Additionally, Crush's own `EstimateTokenCount` function in `/tmp/crush/internal/lcm/config.go` line 47-52 uses `len([]rune(content)) / CharsPerToken` (rune-based), creating an internal inconsistency: the SQL-level estimate uses byte-length while the Go-level estimate uses rune-length.
+**Impact**: Unlike PostgreSQL's `LENGTH()` which can vary by type, SQLite's `LENGTH()` on TEXT values returns the number of **characters** (Unicode code points), not bytes. This means the SQL-level `LENGTH(m.parts)/4` and the Go-level `len([]rune(content))/4` (in `EstimateTokenCount` at `/tmp/crush/internal/lcm/config.go` lines 47-51) are actually **consistent with each other** for valid UTF-8 text -- both count Unicode code points.
 
-Furthermore, `GetMessagesByIDs` in `/tmp/crush/internal/lcm/store.go` line 133 calls `EstimateTokenCount(row.Content)` (rune-based) rather than using the SQL-level byte-based estimate, meaning the same message can yield different token counts depending on whether it was computed in SQL or in Go.
+However, the core divergence from Volt remains significant: Volt stores a pre-computed `token_count` column at insert time (populated via `Token.estimate()`), while Crush re-estimates at query time. The pre-computed value may use a more sophisticated tokenizer, leading to different results. Additionally, the Crush SQL estimate operates on the raw `m.parts` column (which is JSON-serialized message parts, including JSON syntax characters like `[`, `{`, `"`, etc.), not the plain text content. This inflates the estimate relative to the actual text content.
+
+Furthermore, `GetMessagesByIDs` in `/tmp/crush/internal/lcm/store.go` line 133 calls `EstimateTokenCount(row.Content)` -- since `row.Content` is aliased from `m.parts`, both paths estimate from the same raw JSON string. The estimates are internally consistent within Crush, but diverge from Volt's pre-computed values.
 
 ---
 
@@ -65,7 +69,7 @@ The Crush `Store` interface (`/tmp/crush/internal/lcm/types.go`, lines 97-114) o
 | `getMessages` (all for conversation) | 1470 | No |
 | `getMessageCount` | 1085 | No |
 | `searchMessages` (FTS) | 1404 | No |
-| `searchSummaries` (FTS, via tsvector) | 1424 | Partial (FTS5 in store) |
+| `searchSummaries` (FTS, via tsvector) | 1424 | Yes (FTS5 via `SearchSummaries` on Store) |
 | `regexSearchMessages` | 1546 | No |
 | `getSummaryById` (with ancestor scoping) | 1333 | Partial (no ancestor scoping) |
 | `getSummaryMessageIds` | 1484 | No |
@@ -329,25 +333,38 @@ All text content inserted into PostgreSQL is sanitized to escape NUL bytes, whic
 
 ### SQ-16: InsertLeafSummary / InsertCondensedSummary Not Transactional [LOW]
 
-**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 1098-1121):
-Wraps the summary insert and message linkage insert in a single transaction:
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 1098-1121 for `insertLeafSummary`, lines 1126-1153 for `insertCondensedSummary`):
+Both functions wrap the summary insert and linkage insert in a single transaction:
 ```typescript
+// insertLeafSummary:
 await conn.begin(async (tx) => {
     await tx`INSERT INTO summaries ...`
-    await tx`INSERT INTO summary_messages ...`
+    await tx`INSERT INTO summary_messages ${tx(values)}`
+})
+// insertCondensedSummary:
+await conn.begin(async (tx) => {
+    await tx`INSERT INTO summaries ...`
+    await tx`INSERT INTO summary_parents ${tx(values)}`
 })
 ```
 
-**Crush** (`/tmp/crush/internal/lcm/store.go`, lines 144-169):
-Uses sequential non-transactional calls:
+**Crush** (`/tmp/crush/internal/lcm/store.go`, lines 144-169 for `InsertLeafSummary`, lines 171-196 for `InsertCondensedSummary`):
+Both methods use sequential non-transactional calls:
 ```go
+// InsertLeafSummary:
 if err := s.q.LCMInsertSummary(ctx, ...); err != nil { return err }
 for i, msgID := range messageIDs {
     if err := s.q.LCMInsertSummaryMessage(ctx, ...); err != nil { return err }
 }
+
+// InsertCondensedSummary follows the same pattern:
+if err := s.q.LCMInsertSummary(ctx, ...); err != nil { return err }
+for i, parentID := range parentIDs {
+    if err := s.q.LCMInsertSummaryParent(ctx, ...); err != nil { return err }
+}
 ```
 
-**Impact**: If the process crashes after inserting the summary but before completing all message links, the summary will exist with incomplete linkage. The `ON CONFLICT DO NOTHING` on the summary insert provides idempotency for retries, but the message links could be partially applied. The comment in `/tmp/crush/internal/lcm/compactor.go` line 98-99 acknowledges this: "crash between them leaves a dangling summary but ON CONFLICT DO NOTHING handles re-execution cleanly."
+**Impact**: If the process crashes after inserting the summary but before completing all message/parent links, the summary will exist with incomplete linkage. For condensed summaries, this means the DAG would have missing parent edges, potentially breaking recursive expansion. The `ON CONFLICT DO NOTHING` on the summary insert provides idempotency for retries, but the linkage inserts (which also have `ON CONFLICT DO NOTHING`) could be partially applied. The comment in `/tmp/crush/internal/lcm/compactor.go` lines 98-99 acknowledges this: "crash between them leaves a dangling summary but ON CONFLICT DO NOTHING handles re-execution cleanly."
 
 ---
 
@@ -408,6 +425,50 @@ The `LCMAppendContextItem` SQL (`/tmp/crush/internal/db/sql/lcm.sql`, lines 33-3
 
 ---
 
+### SQ-21: GetContextTokenCount Omits Summary Formatting Overhead [MEDIUM]
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 1003-1037):
+`getContextTokenCount` iterates over context entries and adds formatting overhead for summary items (the `[Summary ID: ...]` and `[Parent Summaries: ...]` headers):
+```typescript
+for (const row of rows) {
+    total += row.token_count
+    if (row.item_type === "summary" && row.summary_id) {
+        const parents = row.summary_kind === "condensed" ? await getSummaryParentIds(row.summary_id) : []
+        total += getSummaryFormattingOverhead(row.summary_id, parents)
+    }
+}
+```
+
+**Crush** (`/tmp/crush/internal/db/sql/lcm.sql`, lines 20-31):
+`LCMGetContextTokenCount` computes the total purely in SQL without any formatting overhead:
+```sql
+SELECT COALESCE(SUM(
+    CASE
+        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+        WHEN ci.item_type = 'summary' THEN s.token_count
+        ELSE 0
+    END
+), 0) AS total_tokens
+```
+
+Crush's `GetFormattedContext` function (`/tmp/crush/internal/lcm/context.go`, lines 9-35) correctly adds formatting overhead to individual entries via `GetSummaryFormattingOverhead`, but `GetContextTokenCount` (used by the compactor to decide when to compact) does NOT include this overhead.
+
+**Impact**: The compactor uses `GetContextTokenCount` to compare against `budget.SoftThreshold`. By omitting the formatting overhead, Crush systematically underestimates the actual context size by roughly `N * (overhead_per_summary)` tokens, where N is the number of summaries in context. This causes compaction to trigger later than intended, potentially allowing context to grow past the soft threshold before compaction kicks in. For conversations with several summaries, this could mean the actual context sent to the LLM exceeds the intended limit.
+
+---
+
+### SQ-22: Summary Formatting Overhead Uses Different Token Estimators [LOW]
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 984-994):
+`getSummaryFormattingOverhead` uses `LargeFileThreshold.estimateTokenCount(formattingText)`, which computes `Math.ceil(content.length / 4)` where `content.length` is JavaScript string length (UTF-16 code units).
+
+**Crush** (`/tmp/crush/internal/lcm/context.go`, lines 50-58):
+`GetSummaryFormattingOverhead` uses `EstimateTokenCount(strings.Join(lines, "\n"))`, which computes `len([]rune(content)) / CharsPerToken` (Unicode code points).
+
+For ASCII-only formatting strings (like `[Summary ID: sum_xxx]`), these produce the same results. For summary IDs and parent IDs (which are hex strings), they are always equivalent. This is a cosmetic inconsistency with no practical impact.
+
+---
+
 ## Cross-Cutting Observations
 
 ### Architecture Differences (Not Bugs)
@@ -424,6 +485,48 @@ The `LCMAppendContextItem` SQL (`/tmp/crush/internal/db/sql/lcm.sql`, lines 33-3
 
 1. **SQ-8**: The `GetMessagesToSummarize` row-limit bug is likely causing every compaction to attempt summarizing ALL messages at once (since `budget.SoftThreshold` as a row count is astronomically high). This would cause summarization failures or extremely slow LLM calls.
 
-2. **SQ-1**: The token count inconsistency between SQL-level (`LENGTH()/4` bytes-based) and Go-level (`len([]rune())/4` rune-based) estimation means context size calculations will disagree depending on code path, potentially causing compaction to trigger too early or too late.
+2. **SQ-1**: The token count divergence between Crush (runtime estimation on raw JSON parts via `LENGTH()/4`) and Volt (pre-computed `token_count` column) means context size calculations will differ. The Crush estimate includes JSON syntax overhead (brackets, quotes, field names) inflating the count relative to actual text content.
 
-3. **SQ-3**: While the Go-level recursion in `retrieval.go` compensates for the non-recursive SQL, callers using `Store.ExpandSummaryToMessages` directly will get incomplete results for condensed summaries. The Store interface method name is misleading.
+3. **SQ-21**: The formatting overhead omission in `GetContextTokenCount` compounds with SQ-1 -- the compactor underestimates context size, causing compaction to trigger later than intended.
+
+4. **SQ-3**: While the Go-level recursion in `retrieval.go` compensates for the non-recursive SQL, callers using `Store.ExpandSummaryToMessages` directly will get incomplete results for condensed summaries. The Store interface method name is misleading.
+
+---
+
+## Review Notes
+
+This section documents corrections and additions made during the verification review of this audit.
+
+### Corrections Applied
+
+1. **SQ-1 (Factual correction)**: The original claim that "SQLite's `LENGTH()` counts bytes, not characters" was **incorrect**. SQLite's `LENGTH()` on TEXT values returns the number of Unicode characters (code points), not bytes. `LENGTH()` only returns byte count for BLOB values. The SQL-level `LENGTH(m.parts)/4` and Go-level `len([]rune(content))/4` are actually **consistent** with each other. The impact analysis was updated to reflect the real divergence: Crush estimates from raw JSON-serialized parts (inflated by JSON syntax), while Volt uses pre-computed values. The claim of an "internal inconsistency" between SQL and Go estimates was removed.
+
+2. **SQ-2 (Factual correction)**: `searchSummaries` was listed as "Partial (FTS5 in store)" but is actually fully implemented on the Crush `Store` interface (line 113 of `types.go`: `SearchSummaries`), backed by a raw SQL implementation in `store.go` lines 307-339. Changed to "Yes (FTS5 via `SearchSummaries` on Store)".
+
+3. **SQ-16 (Incomplete)**: The finding title mentioned both `InsertLeafSummary` and `InsertCondensedSummary` but the detail only discussed the leaf case. Updated to document both methods, noting that `InsertCondensedSummary` (`store.go` lines 171-196) follows the same non-transactional pattern. Also updated the Volt section to reference both `insertLeafSummary` (lines 1098-1121) and `insertCondensedSummary` (lines 1126-1153) which both use transactions.
+
+### Findings Added
+
+1. **SQ-21 (MEDIUM)**: `GetContextTokenCount` in Crush's SQL does not include the summary formatting overhead (`[Summary ID: ...]` and `[Parent Summaries: ...]` headers). Volt's equivalent function (`getContextTokenCount` at db.ts lines 1003-1037) iterates over entries and adds this overhead. Crush's `GetFormattedContext` (context.go lines 9-35) correctly adds the overhead to individual entries, but the aggregate token count used by the compactor for threshold decisions omits it.
+
+2. **SQ-22 (LOW)**: Volt's `LargeFileThreshold.estimateTokenCount` uses JavaScript `content.length / 4` (UTF-16 code units) while Crush's `EstimateTokenCount` uses `len([]rune(content)) / CharsPerToken` (Unicode code points). These differ for supplementary Unicode characters (emoji, rare CJK), where JS counts 2 code units per character. No practical impact since the affected formatting strings are ASCII-only hex identifiers.
+
+### Verified Correct (No Changes Needed)
+
+- **SQ-3**: Recursive CTE in Volt and non-recursive SQL + Go-level recursion in Crush accurately described. Line numbers, code quotes, and workaround analysis all verified correct.
+- **SQ-4**: `interface{}` return type for `LCMGetContextTokenCount` confirmed at `lcm.sql.go` line 121. Type assertion logic in `store.go` lines 60-70 accurately quoted.
+- **SQ-5**: N+1 query pattern confirmed at `store.go` lines 119-137 and 198-219. Volt batch pattern at `db.ts` line 862 confirmed.
+- **SQ-6**: FK constraint `ON DELETE CASCADE` on `lcm_summary_messages.message_id` confirmed at migration line 21. Volt's `ON DELETE RESTRICT` confirmed at `db.ts` line 433.
+- **SQ-7**: FK constraint `ON DELETE CASCADE` on `lcm_context_items.message_id` confirmed at migration line 54. Volt's `ON DELETE RESTRICT` confirmed at `db.ts` line 467.
+- **SQ-8**: `budget.SoftThreshold` passed as row limit confirmed at `compactor.go` line 74. Volt's window function approach confirmed at `db.ts` lines 1043-1080.
+- **SQ-9**: Transaction isolation with `nil` options confirmed at `replace.go` line 23. Volt's `FOR UPDATE` locking confirmed at `db.ts` lines 730-733.
+- **SQ-10**: `GetLargeFile` missing from Store interface confirmed. sqlc query exists at `lcm.sql` lines 102-104; generated code at `lcm.sql.go` lines 191-208; Querier interface at `querier.go` line 40.
+- **SQ-11**: Hash input format differences confirmed. Separator `:` vs `|`, milliseconds vs seconds, numeric vs string ID.
+- **SQ-12**: Type assertion at `store.go` lines 41-44 confirmed.
+- **SQ-13**: Narrowing conversions at `store.go` lines 43, 47, 141, 254 all confirmed.
+- **SQ-14**: Type mismatch `LCMMessage.TokenCount int` (types.go line 22) vs `Summary.TokenCount int64` (types.go line 30) vs `ContextEntry.TokenCount int` (types.go line 43) confirmed.
+- **SQ-15**: Null byte escaping at `db.ts` lines 19-21 confirmed. No equivalent in Crush confirmed.
+- **SQ-17**: JSON unmarshal error fallback to `nil` at `store.go` lines 206-208 confirmed. Volt defaults at `db.ts` line 427 (`DEFAULT '[]'`) and line 149 (`z.array(z.string()).default([])`) confirmed.
+- **SQ-18**: FTS5 JOIN on rowid confirmed correct for content-sync FTS5 tables. Migration at lines 75-78 confirms `content=lcm_summaries, content_rowid=rowid`.
+- **SQ-19**: Naming convention divergence accurately described.
+- **SQ-20**: Atomicity difference accurately described. Volt transaction at `db.ts` lines 720-769. Crush `AppendContextItem` at `store.go` lines 76-90 and `lcm.sql` lines 33-37 confirmed.

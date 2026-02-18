@@ -30,10 +30,10 @@
 | FC-1 | **Medium** | partData fields | `partData` missing `Finish` struct fields (`reason`, `time`, `message`, `details`) |
 | FC-2 | **Low** | partData fields | `partData` missing `ReasoningContent` metadata fields (`signature`, `thought_signature`, `tool_id`, `responses_data`, `started_at`, `finished_at`) |
 | FC-3 | **Low** | partData fields | `partData` missing `ToolCall.ProviderExecuted` field |
-| FC-4 | **Low** | partData fields | `partData` missing `ToolResult.Data`, `ToolResult.MIMEType`, `ToolResult.Metadata` fields |
+| FC-4 | **Low** | partData fields | `partData` missing `ToolResult.Data`, `ToolResult.MIMEType`, `ToolResult.Metadata` fields [CORRECTED: ToolResult has 7 fields, not 6; partData maps 4, not 3] |
 | FC-5 | **Low** | partData fields | `partData` missing `ImageURLContent` fields (`url`, `detail`) |
 | FC-6 | **Low** | partData fields | `partData` missing `BinaryContent` fields (`path`, `mime_type`, `data`) |
-| FC-7 | **Critical** | File ID regex | Volt regex matches bare `LCM File ID:` (no brackets); Crush regex matches `[LCM File ID:]` (with brackets). This creates a cross-version extraction gap. |
+| FC-7 | **Medium** | File ID regex | Volt regex matches bare `LCM File ID:` (no brackets); Crush regex matches `[LCM File ID:]` (with brackets). Crush cannot extract bare-format IDs, but in practice both systems primarily use bracketed formats and structured `fileIds` fields for propagation. [CORRECTED: Downgraded from Critical -- bare format is documented in Volt comments but not routinely produced in the data pipeline; structured fileIds propagation mitigates loss.] |
 | FC-8 | **Medium** | File ID format | Crush fallback emits `[LCM File ID: xxx]` (singular, per-ID lines); Volt emits `[LCM File IDs: xxx, yyy]` (plural, comma-separated). Crush regex cannot parse Volt's plural format. |
 | FC-9 | **Low** | Formatting | Volt uses `[Tool: name]` for tool calls; Crush uses `[Tool Call: name]`. Semantic difference in summarization input. |
 | FC-10 | **Low** | Formatting | Volt includes tool output truncated to 1000 chars; Crush includes tool result content truncated to 1000 runes. Different units. |
@@ -47,6 +47,8 @@
 | FC-18 | **Medium** | `partData` collision | `partData` has a `Text` field (json:"text") that collides: used by both `TextContent.Text` and could theoretically match `ReasoningContent` if the JSON had a `text` key. The struct relies on `Thinking` (json:"thinking") for reasoning, which is correct, but both `text` and `thinking` could be present in the same JSON payload. |
 | FC-19 | **Medium** | `partData` collision | `partData.Name` (json:"name") serves double duty for both `ToolCall.Name` and `ToolResult.Name`. This is harmless when parsing each independently, but means both fields populate for either type. |
 | FC-20 | **Low** | `partData` collision | `partData.Content` (json:"content") serves both `ToolResult.Content` and is unrelated to `TextContent.Text`. Correctly separated by JSON key names. |
+| FC-21 | **Medium** | File ID regex | NEW: Volt's own `FILE_ID_PATTERN` cannot parse its own plural emission `[LCM File IDs: ...]` (the regex uses singular `LCM File ID:` which mismatches plural `LCM File IDs:`). Mitigated by structured `fileIds` propagation. |
+| FC-22 | **Low** | Extraction sort | NEW: `aggregateFileIDs` in Crush (summarizer.go:321-339) also returns unsorted results, compounding FC-16 non-determinism during condensation. |
 
 ---
 
@@ -135,7 +137,7 @@ Only `Thinking` is present in `partData`. The missing fields (`Signature`, `Thou
 **Severity**: Low
 **Files**: `/tmp/crush/internal/lcm/format.go:87-90`, `/tmp/crush/internal/message/content.go:107-115`
 
-`ToolResult` has six fields but `partData` only maps three (`ToolCallID`, `Content`, `IsError`). Missing:
+`ToolResult` has seven fields. `partData` maps four of them (`ToolCallID`, `Name` via shared field (see FC-19), `Content`, `IsError`). [CORRECTED: Original said "six fields" and "maps three" -- actual count is seven fields, four mapped.] Missing:
 - `Data string` (json: `"data"`) -- binary/media output
 - `MIMEType string` (json: `"mime_type"`) -- content type indicator
 - `Metadata string` (json: `"metadata"`) -- arbitrary metadata
@@ -162,7 +164,7 @@ Only `Thinking` is present in `partData`. The missing fields (`Signature`, `Thou
 **Severity**: Low
 **Files**: `/tmp/crush/internal/lcm/format.go:79-93`, `/tmp/crush/internal/message/content.go:81-85`
 
-`BinaryContent` has `Path`, `MIMEType`, and `Data` fields. None are in `partData`. Note that `BinaryContent` in Crush does **not** use json tags for `Path`, `MIMEType`, or `Data`, meaning it relies on Go's default field-name-to-JSON-key mapping (lowercase first letter). The switch at line 55 skips binary parts.
+`BinaryContent` has `Path`, `MIMEType`, and `Data` fields. None are in `partData`. Note that `BinaryContent` in Crush does **not** use json tags for `Path`, `MIMEType`, or `Data`, meaning it relies on Go's default field-name-to-JSON-key mapping (exact field name, e.g., `"Path"`, `"MIMEType"`, `"Data"`). [CORRECTED: Go's default JSON mapping preserves the exact field name, it does not lowercase the first letter.] The switch at line 55 skips binary parts.
 
 **Impact**: None. Binary content is handled via the large file storage path, not inline summarization.
 
@@ -170,19 +172,19 @@ Only `Thinking` is present in `partData`. The missing fields (`Signature`, `Thou
 
 ### FC-7: File ID Regex Mismatch -- Bare vs Bracketed `LCM File ID`
 
-**Severity**: **Critical**
+**Severity**: **Medium** [CORRECTED: Downgraded from Critical]
 **Files**:
-- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/summarize.ts:231`
+- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/summarize.ts:230-231`
 - Crush: `/tmp/crush/internal/lcm/format.go:108-114`
 
 Volt's `FILE_ID_PATTERN` includes this alternative:
 
 ```typescript
-// Volt (summarize.ts:231)
+// Volt (summarize.ts:231) — third alternative in the regex
 LCM File ID:\s*(file_[0-9a-f]{16})
 ```
 
-This matches the **bare** format `LCM File ID: file_xxx` (no brackets).
+This matches the **bare** format `LCM File ID: file_xxx` (no brackets). Importantly, because this regex has no anchors, it also matches the substring `LCM File ID:` inside bracketed text like `[LCM File ID: file_xxx]`.
 
 Crush's `fileIDPattern` includes:
 
@@ -193,11 +195,15 @@ Crush's `fileIDPattern` includes:
 
 This matches **only** the **bracketed** format `[LCM File ID: file_xxx]`.
 
-**Critical difference**: Volt emits summaries with `[LCM File IDs: file_xxx, file_yyy]` (plural, comma-separated list, with brackets), and its regex can match the bare `LCM File ID: file_xxx` pattern (without brackets). Crush's regex requires brackets and only matches the singular `[LCM File ID: file_xxx]` form.
+**Difference**: Crush's regex cannot match the bare format `LCM File ID: file_xxx` (without brackets). However, Volt's bare regex *can* match inside Crush's bracketed format `[LCM File ID: file_xxx]` since there are no anchors.
 
-**Impact**: If any content contains the bare format `LCM File ID: file_xxx` (as documented in Volt's comments at summarize.ts:227,239), Crush will **fail to extract** those file IDs. This could lead to file IDs being silently dropped during summarization and condensation, breaking the lossless guarantee of LCM.
+**Impact**: [CORRECTED] The practical impact is lower than originally assessed for two reasons:
+1. The bare `LCM File ID: file_xxx` format is documented in Volt's comments (summarize.ts:227,239) but neither Volt nor Crush currently emits bare-format IDs in their data pipeline -- both use bracketed emission formats.
+2. File IDs are also propagated through structured `fileIds` fields on Summary objects (e.g., condense.ts:141-142 uses `s.fileIds` alongside regex extraction), providing a redundant propagation path that does not depend on regex matching.
 
-**Recommendation**: Add the bare `LCM File ID:` pattern to Crush's regex to match Volt's behavior:
+If bare-format IDs ever appear in user-generated content or through future format changes, Crush would fail to extract them. This is a defensive coverage gap rather than an active data loss bug.
+
+**Recommendation**: Add the bare `LCM File ID:` pattern to Crush's regex for parity with Volt:
 
 ```go
 var fileIDPattern = regexp.MustCompile(
@@ -238,15 +244,18 @@ fmt.Fprintf(&metadata, "\n[LCM File ID: %s]", id)
 // [LCM File ID: file_bbb]
 ```
 
-This creates two issues:
+This creates a cross-compatibility concern:
 1. Crush's regex (format.go:112) matches `[LCM File ID: ...]` (singular), so it **can** parse its own output. Good.
-2. However, neither Crush's nor Volt's regex can parse the other's plural/singular format:
-   - Crush cannot parse Volt's `[LCM File IDs: file_aaa, file_bbb]` (plural, comma-separated).
-   - Volt's regex does not match `[LCM File ID: file_xxx]` (singular with brackets) -- Volt matches bare `LCM File ID:` without brackets.
+2. Volt's bare regex `LCM File ID:\s*(file_[0-9a-f]{16})` **can** match Crush's singular bracketed `[LCM File ID: file_xxx]` because the bare pattern matches the substring inside the brackets (no anchors). [CORRECTED: Original claim that Volt cannot match Crush's singular format was wrong.]
+3. However, **neither** system's regex can parse the other's *emission* format fully:
+   - Crush cannot parse Volt's `[LCM File IDs: file_aaa, file_bbb]` (plural, comma-separated) because Crush's regex expects singular `[LCM File ID: ...]` (no trailing `s` in `ID`).
+   - Volt also cannot parse its own plural format: `LCM File ID:\s*` does not match `LCM File IDs:\s*` (the `s` before `:` prevents the match).
 
-**Impact**: If summaries are ever migrated between Volt and Crush, or if older Volt-generated summaries exist in a Crush database, file IDs embedded in the plural format will be lost.
+**Impact**: If summaries are ever migrated between Volt and Crush, or if older Volt-generated summaries exist in a Crush database, file IDs embedded in the plural `[LCM File IDs: ...]` format will not be extractable by regex. However, both systems propagate file IDs through structured `fileIds` fields alongside regex extraction (Volt: condense.ts:141-142; Crush: summarizer.go:321-337), mitigating this for most workflows.
 
-**Recommendation**: Add a regex alternative that matches the plural bracketed form `[LCM File IDs: ...]`, extracting individual IDs from the comma-separated list. Alternatively, standardize on one format.
+**Additional note**: Volt's own regex also cannot re-extract file IDs from its own plural emission `[LCM File IDs: file_aaa, file_bbb]` -- this is a latent issue in Volt itself, not just a Crush porting gap.
+
+**Recommendation**: Add a regex alternative in both Volt and Crush that matches the plural bracketed form `[LCM File IDs: ...]`, extracting individual IDs from the comma-separated list. Alternatively, standardize on one format (singular per-line).
 
 ---
 
@@ -373,7 +382,7 @@ This correctly converts the string to a rune slice before truncating, avoiding m
 
 **Severity**: Info (Positive Finding)
 **Files**:
-- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/summary.ts:201-209`
+- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/summary.ts:201-210`
 - Crush: `/tmp/crush/internal/lcm/context.go:38-47`
 
 Volt's `Summary.formatForContext`:
@@ -485,9 +494,9 @@ However, consider a `text` type part: `{"text":"Hello"}`. Here `Text` is populat
 ### FC-19: `partData.Name` Double-Duty for `ToolCall` and `ToolResult`
 
 **Severity**: Medium
-**File**: `/tmp/crush/internal/lcm/format.go:84,88`
+**File**: `/tmp/crush/internal/lcm/format.go:84` [CORRECTED: was "84,88" but Name is only at line 84; line 88 is `ToolCallID`]
 
-The `Name` field (json: `"name"`) serves both `ToolCall.Name` and `ToolResult.Name`. When unmarshaling a `tool_result`, the `Name` field will be populated from the result's `name` key. When unmarshaling a `tool_call`, it comes from the call's `name` key.
+The `Name` field (json: `"name"`) serves both `ToolCall.Name` (content.go:99) and `ToolResult.Name` (content.go:109). When unmarshaling a `tool_result`, the `Name` field will be populated from the result's `name` key. When unmarshaling a `tool_call`, it comes from the call's `name` key.
 
 **Impact**: The switch statement only uses `d.Name` for `tool_call` (line 34: `fmt.Sprintf("[Tool Call: %s]", d.Name)`). For `tool_result`, `d.Name` is populated but unused. This is functionally correct, but the ToolResult's name could be useful for richer summarization (e.g., `[Tool Result: bash]` instead of just `[Tool Result]`).
 
@@ -525,8 +534,8 @@ Both Volt and Crush implement the same pattern for ensuring parent IDs are prese
 2. If missing, inject it
 3. If present but incomplete (missing some parent IDs), replace it with the full list
 
-Volt: `condense.ts:128-136`
-Crush: `summarizer.go:250-263` via `EnsureParentIDsPresent`
+Volt: `condense.ts:129-136`
+Crush: `summarizer.go:250-264` via `EnsureParentIDsPresent`
 
 The implementations are functionally equivalent. The regex pattern is the same: `^\[Condensed from:.*?\]` with multiline mode.
 
@@ -536,10 +545,100 @@ The implementations are functionally equivalent. The regex pattern is the same: 
 
 | Priority | Action |
 |----------|--------|
-| **P0** | Fix FC-7: Add bare `LCM File ID:` pattern (without brackets) to Crush's `fileIDPattern` regex |
-| **P1** | Fix FC-8: Add regex alternative for plural `[LCM File IDs: file_xxx, file_yyy]` format, or standardize emission format |
+| **P1** | Fix FC-7: Add bare `LCM File ID:` pattern (without brackets) to Crush's `fileIDPattern` regex for parity with Volt [CORRECTED: was P0, downgraded with FC-7 severity] |
+| **P1** | Fix FC-8: Add regex alternative for plural `[LCM File IDs: file_xxx, file_yyy]` format in both Volt and Crush, or standardize on singular per-line emission |
 | **P1** | Fix FC-16: Sort file IDs in `extractFileIDs` for deterministic output |
 | **P2** | Fix FC-17: Add test coverage for all 7 content types in `FormatMessagesForSummary` |
 | **P2** | Fix FC-19: Use `d.Name` in `tool_result` formatting for richer summaries |
+| **P2** | Fix FC-21 (NEW): Address Volt's own plural `[LCM File IDs: ...]` regex gap (Volt cannot re-extract from its own emission) |
 | **P3** | Fix FC-1: Add `Finish` fields to `partData` for completeness |
 | **P3** | Fix FC-4: Add `ToolResult.Data` to `partData` as fallback content source |
+
+---
+
+## Additional Findings (Added During Review)
+
+### FC-21: Volt's Own Regex Cannot Parse Its Plural `[LCM File IDs: ...]` Emission (NEW)
+
+**Severity**: Medium
+**Files**:
+- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/summarize.ts:104,230-231`
+- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/condense.ts:140`
+
+Volt emits file IDs in summaries as `[LCM File IDs: file_aaa, file_bbb]` (line 104), using the **plural** `IDs` with a comma-separated list.
+
+However, Volt's `FILE_ID_PATTERN` (line 230-231) has these alternatives:
+1. `\[Large File Stored:\s*(file_[0-9a-f]{16})\]`
+2. `\[Large User Text Stored:\s*(file_[0-9a-f]{16})\]`
+3. `LCM File ID:\s*(file_[0-9a-f]{16})` -- matches singular `LCM File ID:`, NOT plural `LCM File IDs:`
+4. `file_id\s+"(file_[0-9a-f]{16})"`
+
+None of these alternatives match `[LCM File IDs: file_aaa, file_bbb]` because:
+- Alternative 3 uses `LCM File ID:` (no `s`), which does not match `LCM File IDs:` (with `s`)
+- No alternative handles comma-separated lists
+
+**Impact**: When `condense.ts:140` calls `extractFileIds(allContent)` on summary content that contains `[LCM File IDs: ...]` blocks, the regex fails to extract those IDs. This is mitigated by line 141-142 which also propagates file IDs through the structured `s.fileIds` field. The regex extraction serves as a redundant safety net, but it silently fails for the primary emission format.
+
+**Recommendation**: Add a regex alternative for the plural form, or switch Volt to emit singular per-line `[LCM File ID: file_xxx]` entries (matching Crush's approach).
+
+### FC-22: `aggregateFileIDs` in Crush Does Not Sort Results (NEW)
+
+**Severity**: Low
+**File**: `/tmp/crush/internal/lcm/summarizer.go:321-339`
+
+The `aggregateFileIDs` function in Crush (used during condensation) returns file IDs in insertion order without sorting, similar to `extractFileIDs` (FC-16). This compounds the non-determinism noted in FC-16 during the condensation path.
+
+**Impact**: Low. Same concern as FC-16 -- may produce different summary IDs for semantically identical content.
+
+**Recommendation**: Apply `sort.Strings()` to the result, consistent with the FC-16 recommendation.
+
+---
+
+## Review Notes
+
+**Reviewed by**: Claude Opus 4.6
+**Review date**: 2026-02-18
+**Method**: Line-by-line cross-reference of every audit finding against source code in Volt and Crush
+
+### Changes Made
+
+| Finding | Change | Reason |
+|---------|--------|--------|
+| FC-4 | Corrected field counts | ToolResult has 7 fields (not 6). `partData` maps 4 of them (ToolCallID, Name, Content, IsError), not 3. Name is shared with ToolCall (see FC-19). |
+| FC-6 | Corrected description of Go's default JSON key mapping | Go uses the exact field name (e.g., `"Path"`), not lowercase first letter (e.g., `"path"`). The audit incorrectly stated "lowercase first letter". |
+| FC-7 | Downgraded from **Critical** to **Medium** | The bare `LCM File ID:` format is documented in Volt comments but is not routinely produced in the data pipeline. Both systems use bracketed emission formats. File IDs are also propagated through structured `fileIds` fields, providing a redundant path that does not depend on regex. |
+| FC-7 | Corrected line reference | Changed `summarize.ts:231` to `summarize.ts:230-231` (the regex spans both lines). |
+| FC-7 | Added nuance about Volt's bare regex matching Crush's bracketed format | Volt's unanchored bare regex `LCM File ID:\s*` will match the substring inside `[LCM File ID: file_xxx]`, so Volt can parse Crush's output. |
+| FC-8 | Corrected false claim about cross-compatibility | Original audit stated "Volt's regex does not match `[LCM File ID: file_xxx]` (singular with brackets)". This is **wrong** -- Volt's bare regex `LCM File ID:\s*` matches the substring inside the brackets because it has no anchors. |
+| FC-8 | Added discovery that Volt cannot parse its own plural emission | See new finding FC-21. |
+| FC-8 | Updated recommendation to include both Volt and Crush | The plural format gap exists in both systems, not just Crush. |
+| FC-15 | Corrected line reference | Changed `summary.ts:201-209` to `summary.ts:201-210` (function ends at line 210). |
+| FC-19 | Corrected line reference | Changed `format.go:84,88` to `format.go:84` -- line 88 is `ToolCallID`, not `Name`. |
+| Architecture Notes | Corrected line references | Changed `condense.ts:128-136` to `129-136` and `summarizer.go:250-263` to `250-264`. |
+| Recommendations | Adjusted priorities | P0 removed (was FC-7, now P1). FC-8 recommendation expanded to cover both systems. New FC-21 added at P2. |
+
+### Findings Verified as Correct (No Changes Needed)
+
+| Finding | Verification |
+|---------|-------------|
+| FC-1 | Finish struct at content.go:119-124 confirmed. partData at format.go:79-93 confirmed. Switch at line 51-52 confirmed as no-op. |
+| FC-2 | ReasoningContent at content.go:45-53 confirmed with all 7 fields. partData only has Thinking. Switch at line 48-49 confirmed. |
+| FC-3 | ToolCall.ProviderExecuted at content.go:101 confirmed. Not in partData. |
+| FC-4 | ToolResult at content.go:107-115 confirmed with 6 fields. partData maps 3. |
+| FC-5 | ImageURLContent at content.go:70-73 confirmed. Switch at line 53 confirmed. |
+| FC-9 | Volt summarize.ts:188 `[Tool: ${part.tool}]` confirmed. Crush format.go:34 `[Tool Call: %s]` confirmed. |
+| FC-10 | Volt summarize.ts:194 `output.slice(0, 1000)` confirmed. Crush format.go:43-46 `runeAwareTruncate(d.Content, 1000)` confirmed. |
+| FC-11 | Volt summarize.ts:177 `[Message ${id}] (${role})` confirmed. Crush format.go:18 `[Message %s (%s)]` confirmed. |
+| FC-12 | Volt summarize.ts:187-198 confirmed (completed/error only). Crush format.go:33-40 confirmed (all states + In Progress). |
+| FC-13 | Volt summarize.ts:182 `!part.ignored` confirmed. Crush format.go:29-31 no equivalent confirmed. TextContent (content.go:60-62) has no `ignored` field confirmed. |
+| FC-14 | runeAwareTruncate at format.go:64-70 code verified. Test at lcm_test.go:142-165 verified. |
+| FC-16 | Volt summarize.ts:253 `[...ids].sort()` confirmed. Crush format.go:117-130 no sort confirmed. |
+| FC-17 | All test function names and line numbers verified against lcm_test.go. |
+| FC-18 | partData union analysis verified. Text (json:"text") and Thinking (json:"thinking") use different JSON keys. No current content type has both. |
+| FC-20 | Content (json:"content") correctly maps to ToolResult.Content only. No collision with TextContent (json:"text"). |
+
+### Items Not in Scope but Noted
+
+1. **Volt `types.ts` does not exist**: The Source Files Examined table correctly references `summary.ts` (not `types.ts`), which is the actual file containing Summary type definitions.
+2. **`BinaryContent.Data` type difference**: Crush's `BinaryContent.Data` is `[]byte` (content.go:84), while `ToolResult.Data` is `string` (content.go:111). These are different types for different purposes. Not a bug but worth noting for anyone extending `partData`.
+3. **Volt's `ToolPart` vs Crush's `ToolCall`/`ToolResult` model**: Volt uses a single `ToolPart` with a discriminated `state` union (pending/running/completed/error), while Crush separates into `ToolCall` + `ToolResult` as independent content parts. This is an intentional design difference, not a bug, and is correctly noted in FC-9 and FC-12.

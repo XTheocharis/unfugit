@@ -16,7 +16,7 @@
 | SC-3 | **HIGH** | Compaction Architecture | Volt has single-pass + re-check loop; Crush has iterative loop with target formula | Divergence |
 | SC-4 | **HIGH** | File ID Appending | Volt appends `[LCM File IDs: ...]` as a batch; Crush appends individual `[LCM File ID: ...]` lines | Divergence |
 | SC-5 | **MEDIUM** | Reserve Computation | Volt uses `min(base, model.limit.output, floor(context*0.25))`; Crush uses `min(20000, contextWindow/4)` | Divergence |
-| SC-6 | **MEDIUM** | Compaction Target Formula | Crush introduces `target = softThreshold * (100 - TargetFreePercent) / 100`; Volt has no equivalent target | Divergence |
+| SC-6 | **MEDIUM** | Compaction Target Formula | Crush introduces `target = softThreshold * (100 - TargetFreePercent) / 100`; Volt defines `TARGET_FREE_PERCENTAGE` but never uses it (dead code) | Divergence |
 | SC-7 | **MEDIUM** | Escalation Error Handling | Crush loses Level 1 errors silently; Volt falls through after checking token counts | Bug |
 | SC-8 | **MEDIUM** | Prompt Architecture | Volt uses system+user message pair; Crush uses `{{messages}}` placeholder substitution | Divergence |
 | SC-9 | **MEDIUM** | Aggressive Summarization MaxTokens | Crush sets `MaxTokens: 500` for aggressive; Volt sets no explicit max_tokens | Divergence |
@@ -30,10 +30,14 @@
 | SC-17 | **INFO** | `context.WithoutCancel` | Crush uses `context.WithoutCancel` for background compaction (correct Go pattern) | OK |
 | SC-18 | **INFO** | Constants Match | `MinMessagesToSummarize=3`, `MaxCompactionRounds=10`, `FallbackMaxTokens=512` all match | OK |
 | SC-19 | **MEDIUM** | Progress Check Strictness | Crush uses `>=` (no progress if equal); Volt uses `>=` too but also checks `!result.actionTaken` | Divergence |
-| SC-20 | **HIGH** | Missing `CRITICAL_THRESHOLD_MULTIPLIER` | Volt has 1.2x critical threshold that lowers min messages; Crush has no equivalent | Omission |
+| SC-20 | **LOW** | Unused `CRITICAL_THRESHOLD_MULTIPLIER` | Volt defines 1.2x critical threshold constant but never uses it; Crush has no equivalent | Equivalent |
 | SC-21 | **MEDIUM** | Condensation Batch Size | Crush hardcodes batch of 5 oldest summaries; Volt condenses ALL summaries in context | Divergence |
 | SC-22 | **MEDIUM** | `shouldSummarizeMessages` Deadlock Risk | Crush returns error when insufficient items exist; can stall the compaction loop | Bug |
 | SC-23 | **LOW** | Summary `Parents` field missing from Crush type | Volt `Summary.Info` has `parents` array; Crush `Summary` struct has no `Parents` field | Omission |
+| SC-24 | **LOW** | Compaction Loop Indexing | Crush uses 0-indexed rounds (0-9); Volt uses 1-indexed (1-10) | Divergence |
+| SC-25 | **MEDIUM** | File IDs Not Appended to Normal/Aggressive Summary Content in Crush | Crush only appends file IDs to content text in fallback; Volt appends in all levels | Divergence |
+| SC-26 | **LOW** | Volt Regex Cannot Match Own Plural File ID Format | `LCM File ID:` regex does not match `LCM File IDs:` that Volt writes | Bug |
+| SC-27 | **INFO** | `DEFAULT_OUTPUT_RESERVE` Missing from Constants Table | Both use 20000 but not listed in SC-18 | OK |
 
 ---
 
@@ -49,7 +53,7 @@ export function estimate(input: string) {
   return Math.max(0, Math.round((input || "").length / CHARS_PER_TOKEN))
 }
 ```
-Uses `string.length` which in JavaScript returns the number of UTF-16 code units. For ASCII this equals byte count. For multi-byte characters (e.g., CJK, emoji), this gives a value between rune count and byte count (since JS strings are UTF-16).
+Uses `string.length` which in JavaScript returns the number of UTF-16 code units. For ASCII this equals byte count. For multi-byte characters (e.g., CJK, emoji), this gives a value between rune count and byte count (since JS strings are UTF-16). Additionally, Volt wraps the result in `Math.max(0, ...)` to guard against negative values, while Crush has no such guard (though integer division of non-negative values cannot be negative anyway).
 
 **Crush** (`/tmp/crush/internal/lcm/config.go`, line 47):
 ```go
@@ -152,12 +156,15 @@ for _, id := range fileIDs {
 ```
 Crush appends **one line per file ID**: `[LCM File ID: file_aaa]\n[LCM File ID: file_bbb]`
 
-**Impact:** The `extractFileIDs` regex in Crush (`format.go` line 108) matches `\[LCM File ID:\s*(file_[0-9a-f]{16})\]` -- this matches individual `[LCM File ID: ...]` lines but does **NOT** match the Volt-style `[LCM File IDs: file_aaa, file_bbb]` (note the plural "IDs"). However, the Volt regex also matches the singular pattern. So:
+**Impact:** The `extractFileIDs` regex in Crush (`format.go` line 108) matches `\[LCM File ID:\s*(file_[0-9a-f]{16})\]` -- this matches individual `[LCM File ID: ...]` lines but does **NOT** match the Volt-style `[LCM File IDs: file_aaa, file_bbb]` (note the plural "IDs" and comma-separated list). Volt's regex uses `LCM File ID:\s*(file_[0-9a-f]{16})` (without surrounding brackets), which matches the singular `[LCM File ID: ...]` pattern from Crush (the regex matches the substring within the brackets). However, neither Volt's nor Crush's regex matches the plural `[LCM File IDs: file_aaa, file_bbb]` format that Volt writes -- Volt's regex requires `LCM File ID:` (singular) immediately followed by a single file ID, while the plural form has `LCM File IDs:` (with trailing "s"). So:
 - Crush can extract IDs from its own format: YES
 - Crush can extract IDs from Volt-format summaries: NO (the plural `[LCM File IDs: ...]` pattern is not in Crush's regex)
-- Volt can extract IDs from Crush-format summaries: YES (via `LCM File ID:` pattern)
+- Volt can extract IDs from Crush-format summaries: YES (via unbracketed `LCM File ID:` pattern)
+- Volt can extract IDs from its OWN `[LCM File IDs: ...]` format: **NO** (the plural "IDs" doesn't match the singular "ID:" regex)
 
-This matters if summaries from one system are ever read by the other. More importantly, the normal summarization in Crush (`summarizeNormal`, line 77-84) does NOT append file IDs to the content at all -- it only sets the `FileIDs` field on the struct. The fallback does append them. This is inconsistent.
+The last point means Volt's regex cannot re-extract file IDs from its own summary output text. This is likely by design since file IDs are stored structurally in the `fileIds` array, but it is worth noting.
+
+More importantly, the normal and aggressive summarization in Crush (`summarizeNormal`, lines 77-84; `summarizeAggressive`, lines 101-108) do NOT append file IDs to the content at all -- they only set the `FileIDs` field on the struct. Only the fallback level appends them to text. In contrast, Volt appends `[LCM File IDs: ...]` to the content in all three levels (normal, aggressive, and fallback). This is an inconsistency between the systems and within Crush itself.
 
 **Recommendation:** Align the file ID format. Add the `[LCM File IDs: ...]` (plural) pattern to Crush's regex or change Crush to use the singular format consistently.
 
@@ -194,11 +201,11 @@ target := budget.SoftThreshold * (100 - TargetFreePercent) / 100
 ```
 This computes `target = softThreshold * 75/100`. With `TargetFreePercent = 25`, the compaction continues until tokens are at 75% of the soft threshold.
 
-**Volt** has no equivalent target formula. The `compactUntilUnderLimit` loop (`context.ts` line 870) checks `recheck.currentTokens <= recheck.hardLimit` (comparing against hard limit). The `onContextThresholdReached` function checks `overSoft` (comparing against soft threshold). Volt uses `TARGET_FREE_PERCENTAGE = 0.25` only for message selection (how many messages to include for summarization), NOT as a compaction target.
+**Volt** has no equivalent target formula. The `compactUntilUnderLimit` loop (`context.ts` line 870) checks `recheck.currentTokens <= recheck.hardLimit` (comparing against hard limit). The `onContextThresholdReached` function checks `overSoft` (comparing against soft threshold). Volt defines `TARGET_FREE_PERCENTAGE = 0.25` (`context.ts` line 123) but this constant is **never referenced anywhere in the codebase** -- it is dead code. Volt does NOT use a target-below-threshold approach at all.
 
 **Impact:** Crush compacts more aggressively than Volt. Given `softThreshold = 73800`, Crush targets `73800 * 75/100 = 55350`. Volt would stop as soon as tokens drop below the soft threshold (73800) or hard limit (105000), depending on which loop is running. This means Crush will run more compaction rounds, consuming more LLM calls, but will have more headroom before the next compaction trigger.
 
-**Recommendation:** This is an intentional design choice in Crush but should be documented. The `TargetFreePercent` constant in Volt (`TARGET_FREE_PERCENTAGE = 0.25`) has different semantics than in Crush.
+**Recommendation:** This is an intentional design choice in Crush but should be documented. The `TargetFreePercent` constant in Crush is actively used to compute a compaction target, while the equivalent `TARGET_FREE_PERCENTAGE` constant in Volt is dead code (defined but never referenced). This is a new behavior in Crush, not a port of existing Volt logic.
 
 ---
 
@@ -241,17 +248,19 @@ However, when Level 1 **succeeds but is too large** (`err == nil && summary.Toke
 
 But there is a subtle issue: Level 1 errors are silently discarded. In Volt, the escalation is only triggered by the size check (`leafSummary.tokenCount >= inputTokens`), and errors propagate upward. In Crush, an LLM error at Level 1 causes silent escalation to Level 2.
 
-**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, lines 435-461):
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, lines 434-445):
 ```typescript
 // Level 1: Normal summarization
 let leafSummary = await LcmSummarize.summarize(summarizeParams)
-// If this throws, the error propagates -- no escalation on error
+let summarizationLevel = "normal"
 
 // Convergence check: summary must be strictly smaller than input
 if (leafSummary.tokenCount >= inputTokens) {
-    // Only escalate on size, not on error
+    // ...
+    // Level 2: Aggressive
     leafSummary = await LcmSummarize.summarizeAggressive(summarizeParams)
 ```
+If `LcmSummarize.summarize()` throws, the error propagates upward -- there is no escalation on error, only on size.
 
 **Impact:** In Crush, a transient LLM error at Level 1 causes silent fallback to Level 2 instead of reporting the error. This could mask configuration issues, API problems, or rate limiting.
 
@@ -324,10 +333,10 @@ response, err := s.llmClient.Generate(ctx, LLMRequest{
 
 ### SC-11: Fallback Metadata Reserve [MEDIUM]
 
-**Crush** (`/tmp/crush/internal/lcm/config.go`, lines 34-35):
+**Crush** (`/tmp/crush/internal/lcm/config.go`, lines 32 and 35):
 ```go
-const FallbackMaxTokens = 512
-const FallbackMetadataReserve = 100
+const FallbackMaxTokens = 512        // line 32
+const FallbackMetadataReserve = 100   // line 35
 ```
 
 Used in fallback truncation (`summarizer.go` line 114):
@@ -522,16 +531,23 @@ The comment in Crush (lines 58-60) acknowledges the TOCTOU race with concurrent 
 
 ---
 
-### SC-20: Missing `CRITICAL_THRESHOLD_MULTIPLIER` [HIGH]
+### SC-20: ~~Missing `CRITICAL_THRESHOLD_MULTIPLIER`~~ Unused Constant [~~HIGH~~ LOW]
 
-**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, lines 133-136):
+**CORRECTED:** Severity downgraded from HIGH to LOW. The constant is defined but **never used** in Volt.
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, lines 132-136):
 ```typescript
+/**
+ * Critical threshold multiplier - when context is this far over threshold,
+ * we lower the minimum messages requirement to ensure progress is made.
+ * At 1.2 = 20% over threshold, we'll summarize even 1-2 messages.
+ */
 export const CRITICAL_THRESHOLD_MULTIPLIER = 1.2
 ```
 
-This constant is defined but its usage would be in the message selection logic -- when context is 20% over threshold, the minimum messages requirement is lowered to ensure progress. This is a safety valve for extreme over-threshold scenarios.
+This constant is defined with an explanatory comment describing intended behavior, but it is **never referenced anywhere in the Volt codebase** (confirmed via full codebase search). The described behavior (lowering the minimum messages requirement when context is 20% over threshold) is **not implemented** in Volt.
 
-**Crush** has no equivalent. The `MinMessagesToSummarize` is always enforced as a hard minimum (see `compactor.go` line 78):
+**Crush** has no equivalent constant, and its `MinMessagesToSummarize` is always enforced as a hard minimum (see `compactor.go` line 78):
 ```go
 if len(messagesToSummarize) < MinMessagesToSummarize {
     return fmt.Errorf("not enough messages to summarize (got %d, need %d)",
@@ -539,7 +555,9 @@ if len(messagesToSummarize) < MinMessagesToSummarize {
 }
 ```
 
-**Impact:** In edge cases where there are only 1-2 messages but they are very large, Crush will refuse to summarize and return an error, potentially stalling the compaction loop. Volt would lower the minimum at 1.2x the threshold and allow summarizing even 1 message.
+**Impact:** Both Volt and Crush enforce the minimum messages requirement unconditionally. Neither system currently lowers the minimum when context is critically over threshold. The edge case described (1-2 very large messages stalling compaction) applies equally to both systems. The original audit incorrectly stated that Volt implements this behavior.
+
+**Recommendation:** If this safety valve is desired, it should be implemented in both systems. Currently neither has it.
 
 ---
 
@@ -573,10 +591,16 @@ func (c *Compactor) shouldSummarizeMessages(
     ctx context.Context, sessionID string,
 ) (bool, error) {
     messageCount, err := c.store.CountMessagesInContext(ctx, sessionID)
+    if err != nil {
+        return false, fmt.Errorf("failed to count messages: %w", err)
+    }
     if messageCount >= MinMessagesToSummarize {
         return true, nil
     }
     summaryCount, err := c.store.CountSummariesInContext(ctx, sessionID)
+    if err != nil {
+        return false, fmt.Errorf("failed to count summaries: %w", err)
+    }
     if summaryCount < 1 {
         return false, fmt.Errorf(
             "insufficient items for compaction: %d messages (need %d), %d summaries (need >=1)",
@@ -711,16 +735,157 @@ However, Volt uses `Map<number, Promise>` (keyed by conversationId, which is num
 - SC-1: Token estimation divergence can cause compaction to trigger at different points
 - SC-2: Summary ID generation is fundamentally different, affecting idempotency and deduplication
 - SC-3: Compaction architecture divergence means different compaction behavior in practice
-- SC-4: File ID format mismatch prevents cross-system summary parsing
-- SC-20: Missing critical threshold multiplier can cause stuck sessions
+- SC-4: File ID format mismatch prevents cross-system summary parsing (also: Crush normal/aggressive levels do not append file IDs to content text, unlike Volt)
 
 **Medium-Risk Items (Should Address):**
 - SC-5: Reserve computation difference for low-output models
+- SC-6: Compaction target formula is new Crush behavior, not a port of Volt logic
 - SC-7: Silent error escalation masks operational issues
+- SC-8: Prompt architecture divergence (system+user vs. single prompt string)
+- SC-9: Aggressive summarization MaxTokens hard-cap (500) not present in Volt
+- SC-10: Aggressive condensation MaxTokens hard-cap (600) not present in Volt
+- SC-11: Fallback metadata reserve is a Crush improvement but changes behavior
 - SC-19: Ignored database errors in progress check
 - SC-21: Batch condensation (5) vs. all-at-once changes compaction efficiency
 - SC-22: Error from `shouldSummarizeMessages` can stall compaction permanently
 
 **Low-Risk Items (Document or Accept):**
-- SC-6, SC-8, SC-9, SC-10, SC-11: Intentional design choices in Crush that differ from Volt
-- SC-12, SC-13, SC-15, SC-23: Minor inconsistencies that are unlikely to cause issues in practice
+- SC-12, SC-13, SC-14, SC-15, SC-23: Minor inconsistencies that are unlikely to cause issues in practice
+- SC-16, SC-17, SC-18: Verified equivalent or correct
+- SC-20: `CRITICAL_THRESHOLD_MULTIPLIER` is dead code in Volt (defined but never used); neither system implements the described behavior
+
+---
+
+## Additional Findings (Added During Review)
+
+### SC-24: Compaction Loop Indexing Difference [LOW]
+
+**Crush** (`/tmp/crush/internal/lcm/compactor.go`, line 26):
+```go
+for round := 0; round < MaxCompactionRounds; round++ {
+```
+Crush uses **0-indexed** rounds (0 through 9).
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, line 831):
+```typescript
+for (let round = 1; round <= MAX_COMPACTION_ROUNDS; round++) {
+```
+Volt uses **1-indexed** rounds (1 through 10).
+
+Both execute exactly 10 rounds, but the round number returned in results differs by 1. Crush returns 0-9 for individual rounds and `MaxCompactionRounds` (10) for exhaustion; Volt returns 1-10 for individual rounds and `MAX_COMPACTION_ROUNDS` (10) for exhaustion. This could cause confusion when comparing diagnostics/logs between the two systems.
+
+---
+
+### SC-25: Crush Normal/Aggressive Summarization Does Not Append File IDs to Content [MEDIUM]
+
+**Crush** `summarizeNormal` (`/tmp/crush/internal/lcm/summarizer.go`, lines 77-84):
+```go
+return &Summary{
+    SummaryID:  generateSummaryID(messages),
+    SessionID:  messages[0].SessionID,
+    Kind:       SummaryKindLeaf,
+    Content:    response.Text,        // <-- raw LLM output, no file IDs appended
+    TokenCount: int64(EstimateTokenCount(response.Text)),
+    FileIDs:    fileIDs,              // <-- stored only in struct field
+}, nil
+```
+
+**Volt** `summarize` (`/tmp/volt/packages/voltcode/src/session/lcm/summarize.ts`, lines 103-104):
+```typescript
+const finalContent =
+    fileIds.length > 0 ? summaryContent + `\n[LCM File IDs: ${fileIds.join(", ")}]` : summaryContent
+```
+
+Volt appends file IDs to the summary content text in **all three** escalation levels (normal, aggressive, fallback). Crush only appends them in the **fallback** level. In the normal and aggressive levels, Crush stores them in the `FileIDs` struct field but the content text has no file ID markers.
+
+**Impact:** When the LLM sees summary content in context (e.g., during condensation), Crush's normal/aggressive summaries will not contain file ID references in the text. This means the LLM cannot preserve file IDs during condensation unless they are injected separately. The `aggregateFileIDs` function (`summarizer.go` lines 321-338) compensates by extracting from both `summary.FileIDs` and `summary.Content`, but downstream consumers that only have the content text will miss the file IDs.
+
+---
+
+### SC-26: Volt Regex Cannot Match Its Own Plural File ID Format [LOW]
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/summarize.ts`, line 231):
+```typescript
+const FILE_ID_PATTERN =
+    /\[Large File Stored:\s*(file_[0-9a-f]{16})\]|
+     \[Large User Text Stored:\s*(file_[0-9a-f]{16})\]|
+     LCM File ID:\s*(file_[0-9a-f]{16})|
+     file_id\s+"(file_[0-9a-f]{16})"/g
+```
+
+The third alternative matches `LCM File ID:` (singular) followed by a single file ID. However, Volt writes file IDs in the plural format: `[LCM File IDs: file_aaa, file_bbb]`. The regex `LCM File ID:` does **not** match `LCM File IDs:` because the "s" in "IDs" prevents the match (`ID:` vs `IDs:`).
+
+**Impact:** Volt's `extractFileIds` function cannot re-extract file IDs from its own summary output text. This is likely acceptable because file IDs are stored structurally in the `fileIds` array on `Summary.Info` objects, but it means file IDs embedded in summary content text are effectively opaque to Volt's regex extraction. If a condensed summary's content only contains the plural format (from the LLM echoing it), those IDs would not be re-extracted.
+
+---
+
+### SC-27: `DEFAULT_OUTPUT_RESERVE` Not Listed in Constants Table [INFO]
+
+Volt defines `DEFAULT_OUTPUT_RESERVE = 20_000` (`/tmp/volt/packages/voltcode/src/session/token-budget.ts`, line 10). Crush hardcodes `20_000` directly in `ComputeTokenBudget` (`config.go`, line 87). Both use the same value but the constant is not listed in the SC-18 matching constants table.
+
+---
+
+## Review Notes
+
+**Review performed:** 2026-02-18
+**Reviewer methodology:** Every finding was verified by reading the actual source files and cross-referencing file paths, line numbers, code snippets, and behavioral claims against the real code.
+
+### Corrections Applied
+
+1. **SC-1**: Added note about Volt's `Math.max(0, ...)` guard not present in Crush (minor omission).
+
+2. **SC-4**: Significantly expanded the Impact section. The original audit incorrectly stated "the Volt regex also matches the singular pattern" without clarifying that Volt's regex uses `LCM File ID:` (without brackets), which CAN match Crush's `[LCM File ID: ...]` format as a substring. Also added the critical finding that Volt's own regex CANNOT match its own plural `[LCM File IDs: ...]` format. Noted that Crush's normal/aggressive levels don't append file IDs to content text (only the fallback does), which is inconsistent with Volt.
+
+3. **SC-6**: Corrected claim that "Volt uses `TARGET_FREE_PERCENTAGE = 0.25` only for message selection." In fact, `TARGET_FREE_PERCENTAGE` is **defined but never referenced** anywhere in the Volt codebase -- it is dead code. Updated the recommendation accordingly.
+
+4. **SC-7**: Fixed Volt code snippet line numbers from "lines 435-461" to "lines 434-445" and removed fake inline comments that were not in the actual source code. Moved the behavioral explanation outside the code block.
+
+5. **SC-11**: Fixed line number for `FallbackMaxTokens` from "lines 34-35" to "lines 32 and 35" (the two constants are not on adjacent lines in the source).
+
+6. **SC-20**: **Major correction.** Downgraded from HIGH to LOW. The original audit claimed Volt actively uses `CRITICAL_THRESHOLD_MULTIPLIER` to lower the minimum messages requirement, but a full codebase search confirmed this constant is **defined but never referenced** anywhere. The described behavior is not implemented in Volt. Neither system lowers the minimum messages requirement under critical conditions. Updated the finding title, severity, description, impact, and recommendation.
+
+7. **SC-22**: Fixed the code snippet to include the error-handling lines (`if err != nil { ... }`) that were omitted from the original audit. The original snippet showed a simplified version that did not match the actual source code.
+
+8. **Summary Table**: Updated SC-6 description and SC-20 severity/description/status to reflect corrections.
+
+9. **Risk Summary**: Reorganized to be consistent with actual severity ratings. SC-6, SC-8, SC-9, SC-10, SC-11 were listed as "Low-Risk" in the original but are rated MEDIUM in their findings -- moved them to Medium-Risk. SC-20 moved from High-Risk to Low-Risk.
+
+### New Findings Added
+
+- **SC-24** [LOW]: Compaction loop indexing difference (0-indexed in Crush vs. 1-indexed in Volt).
+- **SC-25** [MEDIUM]: Crush normal/aggressive summarization does not append file IDs to content text (unlike Volt, which always appends them).
+- **SC-26** [LOW]: Volt's own regex cannot match the plural `[LCM File IDs: ...]` format it writes.
+- **SC-27** [INFO]: `DEFAULT_OUTPUT_RESERVE = 20_000` constant not listed in the matching constants table.
+
+### Verified Accurate (No Changes Needed)
+
+The following findings were verified as accurate with correct file paths, line numbers, code snippets, and analysis:
+- SC-1 (core analysis correct, minor addition made)
+- SC-2, SC-3, SC-5, SC-8, SC-9, SC-10, SC-12, SC-13, SC-14, SC-15, SC-16, SC-17, SC-18, SC-19, SC-21, SC-23
+- All "Additional Observations" in the original document were verified as accurate
+
+### Files Referenced During Verification
+
+**Volt:**
+- `/tmp/volt/packages/voltcode/src/util/token.ts`
+- `/tmp/volt/packages/voltcode/src/session/token-budget.ts`
+- `/tmp/volt/packages/voltcode/src/session/lcm/summarize.ts`
+- `/tmp/volt/packages/voltcode/src/session/lcm/condense.ts`
+- `/tmp/volt/packages/voltcode/src/session/lcm/context.ts`
+- `/tmp/volt/packages/voltcode/src/session/lcm/summary.ts`
+- `/tmp/volt/packages/voltcode/src/session/lcm/config.ts` (Postgres config only, no LCM logic)
+
+**Crush:**
+- `/tmp/crush/internal/lcm/summarizer.go`
+- `/tmp/crush/internal/lcm/compactor.go`
+- `/tmp/crush/internal/lcm/config.go`
+- `/tmp/crush/internal/lcm/manager.go`
+- `/tmp/crush/internal/lcm/types.go`
+- `/tmp/crush/internal/lcm/format.go`
+- `/tmp/crush/internal/lcm/context.go`
+- `/tmp/crush/internal/lcm/replace.go`
+- `/tmp/crush/internal/lcm/integration.go`
+- `/tmp/crush/internal/lcm/retrieval.go`
+- `/tmp/crush/internal/lcm/lcm_test.go`
+
+**Note:** The task listed `/tmp/volt/packages/voltcode/src/session/lcm/compaction.ts` and `/tmp/volt/packages/voltcode/src/session/lcm/types.ts` as source files, but neither file exists. The compaction logic in Volt is in `context.ts` (the `compactUntilUnderLimit` function), and the types are in `summary.ts`.

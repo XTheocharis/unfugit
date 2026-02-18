@@ -20,7 +20,7 @@
 | DB-6 | **High** | Missing Table | `llm_map_runs` / `llm_map_items` tables omitted | Feature gap |
 | DB-7 | **High** | Column Omission | `large_files` missing `exploration_summary` and `explorer_used` columns | Feature gap |
 | DB-8 | **High** | Column Omission | `large_files` missing `content` and `binary_content` legacy columns | Intentional simplification -- verify |
-| DB-9 | **High** | Type Mapping | `large_files.token_count` is INTEGER in Crush, BIGINT in Volt | Truncation risk for huge files |
+| DB-9 | **Low** | Type Mapping | `large_files.token_count` is INTEGER in Crush, BIGINT in Volt | No real risk -- SQLite INTEGER is 64-bit |
 | DB-10 | **Medium** | Missing Index | `lcm_large_files` missing `original_path` index | Query performance |
 | DB-11 | **Medium** | Missing Index | `lcm_context_items` missing `summary_id` and `message_id` individual indexes | Query performance |
 | DB-12 | **Medium** | FTS5 | No FTS5 on messages -- Volt has full-text search on both messages and summaries | Feature gap |
@@ -33,12 +33,14 @@
 | DB-19 | **Low** | Goose Format | Migration uses single StatementBegin/End block for entire Up section | Valid but less granular rollback |
 | DB-20 | **Low** | Hash Input | `GenerateFileIDFromPath` uses pipe separator and `mtime.Unix()` in Crush vs colon separator and `mtime.getTime()` (ms) in Volt | Different IDs for same file |
 | DB-21 | **Medium** | Query Semantics | `LCMGetMessagesToSummarize` uses row LIMIT, Volt uses token-budget window | Behavioral difference |
-| DB-22 | **Medium** | Query Semantics | `LCMExpandSummaryToMessages` is non-recursive in Crush, recursive in Volt | Only expands one level |
+| DB-22 | **Low** | Query Semantics | `LCMExpandSummaryToMessages` SQL is non-recursive in Crush, but application layer handles recursion | Different implementation strategy |
 | DB-23 | **Low** | Missing Query | No `searchMessages` equivalent in Crush | Feature gap |
 | DB-24 | **Low** | Missing Query | No `regexSearchMessages` equivalent in Crush | Feature gap |
 | DB-25 | **Low** | Missing Query | No `getCoveringSummary` equivalent in Crush | Feature gap |
 | DB-26 | **Low** | Missing Query | No `getChildSummaryIds` equivalent in Crush | Feature gap |
 | DB-27 | **Low** | Missing Query | No `getAncestorConversationIds` equivalent in Crush | Feature gap |
+| DB-31 | **Medium** | Token Counting | Crush `messages` has no `token_count` column; LCM queries estimate via `LENGTH(parts)/4` | Behavioral difference -- less accurate |
+| DB-32 | **Medium** | Context Formatting | Summary ID/parent injection into context content not implemented in Crush | Feature gap -- affects retrieval |
 | DB-28 | **Info** | Naming | Crush tables prefixed with `lcm_`; Volt tables are unprefixed | Intentional -- avoids conflicts |
 | DB-29 | **Info** | Primary Key | Volt `messages.message_id` is auto-increment BIGINT; Crush `messages.id` is TEXT (UUID) | Pre-existing Crush design |
 | DB-30 | **Medium** | Timestamp Inconsistency | Existing Crush `sessions`/`messages` use millisecond timestamps; LCM tables use second timestamps | Internal inconsistency |
@@ -228,7 +230,7 @@ binary_content  bytea,          -- Legacy: kept for backwards compatibility
 
 ### DB-9: `large_files.token_count` INTEGER vs BIGINT
 
-**Severity**: High
+**Severity**: Low (downgraded from High -- no actual truncation risk)
 **Category**: Type Mapping
 
 **Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, line 484):
@@ -242,9 +244,9 @@ The comment explicitly notes BIGINT is needed for "files with billions of tokens
 token_count   INTEGER NOT NULL,
 ```
 
-**Analysis**: SQLite's `INTEGER` type is up to 8 bytes (64-bit signed integer), which is effectively equivalent to PostgreSQL's `BIGINT`. However, the Go model (`/tmp/crush/internal/db/models.go`, line 34) maps this as `int64`, and the insert param type (`/tmp/crush/internal/db/lcm.sql.go`, line 401) is also `int64`. So while the schema declaration says "INTEGER", SQLite will store it as a 64-bit value if needed.
+**Analysis**: SQLite's `INTEGER` type is up to 8 bytes (64-bit signed integer), which is effectively equivalent to PostgreSQL's `BIGINT`. The Go model (`/tmp/crush/internal/db/models.go`, line 34) maps this as `int64`, and the insert param type (`/tmp/crush/internal/db/lcm.sql.go`, line 401) is also `int64`. So while the schema declaration says "INTEGER", SQLite will store it as a 64-bit value if needed. **There is no truncation risk.** The original High severity was incorrect -- SQLite INTEGER affinity stores values up to 64 bits regardless of the type name used in the DDL.
 
-**Recommendation**: This is technically fine for SQLite (INTEGER affinity handles any size up to 64-bit). However, for clarity and intent documentation, consider using `BIGINT` in the schema definition even though SQLite treats them equivalently.
+**Recommendation**: No functional issue. For documentation clarity, consider using `BIGINT` in the schema definition even though SQLite treats them equivalently.
 
 ---
 
@@ -525,15 +527,17 @@ ORDER BY ci.position LIMIT ?
 ```
 Uses a simple **row count LIMIT**.
 
-**Analysis**: The Volt approach ensures that the summarized batch fits within a token budget, preventing the summarizer from receiving too much text. The Crush approach selects a fixed number of messages regardless of their token counts. A single very large message could exceed the summarizer's capacity. The Crush compactor (`compactor.go`) may handle this at the application layer, but the query itself does not enforce a token budget.
+**Analysis**: The Volt approach ensures that the summarized batch fits within a token budget, preventing the summarizer from receiving too much text. The Crush approach uses a simple `LIMIT` parameter.
 
-**Recommendation**: Verify that the compactor's application-level logic adequately handles token budgets. If not, consider implementing token-budget-aware selection.
+However, examining the actual call site in `compactor.go` (line 74), the LIMIT value passed is `budget.SoftThreshold` -- which is a **token count** (e.g., ~60,000), not a meaningful row count. Since a session would never have 60,000 messages, this effectively means "get all messages," which is significantly different from Volt's token-budget windowing. A single very large message (or many moderate messages) could exceed the summarizer's capacity since there is no token-based cutoff.
+
+**Recommendation**: The `rowLimit` parameter should either be replaced with a token-budget-aware window function (matching Volt), or the application layer should post-filter messages to stay within a token budget before sending them to the summarizer. The current use of `SoftThreshold` as a row LIMIT is likely a bug -- it works by accident because no session has that many messages, but it does not enforce any token-based constraint.
 
 ---
 
-### DB-22: `LCMExpandSummaryToMessages` Is Non-Recursive
+### DB-22: `LCMExpandSummaryToMessages` SQL Is Non-Recursive (But Application Layer Handles It)
 
-**Severity**: Medium
+**Severity**: Low (downgraded from Medium -- recursion IS implemented, just differently)
 **Category**: Query Semantics
 
 **Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 1375-1399):
@@ -552,9 +556,9 @@ leaf_messages AS (
 )
 SELECT DISTINCT m.* FROM leaf_messages lm JOIN messages m ...
 ```
-Recursively walks the summary DAG to find all leaf messages.
+Recursively walks the summary DAG to find all leaf messages in a single SQL query.
 
-**Crush** (`/tmp/crush/internal/db/sql/lcm.sql`, lines 87-92):
+**Crush SQL** (`/tmp/crush/internal/db/sql/lcm.sql`, lines 87-92):
 ```sql
 SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
 FROM lcm_summary_messages sm
@@ -564,9 +568,31 @@ ORDER BY sm.ord
 ```
 Only expands one level -- direct `summary_messages` links only.
 
-**Analysis**: For a condensed summary, Volt recursively walks through all parent summaries down to leaf summaries to find the original messages. Crush only returns messages directly linked to the given summary. For condensed summaries, this would return **zero results** because condensed summaries link to parent summaries (via `summary_parents`), not directly to messages (via `summary_messages`).
+**Crush Application Layer** (`/tmp/crush/internal/lcm/retrieval.go`, lines 10-54):
+```go
+func ExpandSummary(ctx context.Context, store Store, summaryID string) ([]LCMMessage, error) {
+    return expandSummaryWithVisited(ctx, store, summaryID, make(map[string]bool))
+}
 
-**Recommendation**: Either implement recursive expansion using a `WITH RECURSIVE` CTE in SQLite (which supports it), or handle recursion in the application layer.
+func expandSummaryWithVisited(...) ([]LCMMessage, error) {
+    // First try direct message expansion
+    messages, err := store.ExpandSummaryToMessages(ctx, summaryID)
+    if len(messages) > 0 { return messages, nil }
+    // If no direct messages, recursively expand parent summaries
+    parentIDs, _ := store.GetSummaryParentIDs(ctx, summaryID)
+    for _, parentID := range parentIDs {
+        msgs, _ := expandSummaryWithVisited(ctx, store, parentID, visited)
+        allMessages = append(allMessages, msgs...)
+    }
+    return allMessages, nil
+}
+```
+
+**Analysis**: The original audit incorrectly stated that Crush "only expands one level." While the SQL query is indeed non-recursive, Crush implements recursive DAG traversal in Go application code (`retrieval.go`). The `ExpandSummary` function calls `ExpandSummaryToMessages` first; if no direct messages are found (as with condensed summaries), it fetches parent summary IDs and recursively expands each parent. This also includes cycle detection (`visited` map), which Volt's SQL-only approach does not have.
+
+The trade-off is that the Go approach requires N+1 SQL queries (one per DAG node) rather than a single recursive CTE, which may be slightly less efficient for deep DAG structures but is functionally correct.
+
+**Recommendation**: No action required -- the recursive expansion is correctly implemented. For performance with deeply nested DAGs, a `WITH RECURSIVE` CTE could be considered as an optimization, but this is not a correctness issue.
 
 ---
 
@@ -689,6 +715,68 @@ Only expands one level -- direct `summary_messages` links only.
 
 ---
 
+### DB-31: Crush `messages` Table Has No `token_count` Column -- LCM Estimates at Query Time
+
+**Severity**: Medium
+**Category**: Token Counting
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, line 388):
+```sql
+token_count     integer NOT NULL,
+```
+Volt's `messages` table stores a pre-computed `token_count` per message. This is used directly in queries like `getContextTokenCount` and `getMessagesToSummarize`.
+
+**Crush** (`/tmp/crush/internal/db/migrations/20250424200609_initial.sql`, lines 47-57):
+The `messages` table has no `token_count` column. Instead, LCM queries estimate token counts at query time:
+
+```sql
+-- From lcm.sql, LCMGetCurrentContext:
+CASE
+    WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+    ELSE COALESCE(s.token_count, 0)
+END AS token_count
+```
+
+**Analysis**: Crush uses `LENGTH(parts) / 4` as a character-based token estimate at query time. This has two issues:
+1. **Accuracy**: `parts` contains JSON-serialized message parts (including JSON syntax characters like `[`, `{`, `"`, commas, field names, tool metadata, etc.), not just the raw message text. This inflates the token estimate compared to Volt's pre-computed count which is based on the plain-text `content` column. For a message with significant tool use or structured data, the JSON overhead could inflate the estimate substantially.
+2. **Consistency**: SQLite's `LENGTH()` for TEXT returns the character count (similar to Go's rune count), so it is consistent with Go's `EstimateTokenCount` function (`len([]rune(content)) / CharsPerToken`) in terms of unit. However, the input data differs: SQL operates on JSON-serialized `parts`, while Go operates on the raw content string. This means the same message will produce different token estimates depending on which code path is used.
+
+**Recommendation**: Consider adding a `token_count` column to the `messages` table (via migration) and populating it at message creation time. Alternatively, ensure the SQL estimation is consistent with the Go estimation. At minimum, document this discrepancy.
+
+---
+
+### DB-32: Summary ID/Parent Injection into Context Content Not Implemented in Crush
+
+**Severity**: Medium
+**Category**: Context Formatting
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 963-994):
+```typescript
+function formatSummaryContentForContext(summaryId: string, content: string, parents: string[]): string {
+    const lines: string[] = []
+    lines.push(`[Summary ID: ${summaryId}]`)
+    if (parents.length > 0) {
+        lines.push(`[Parent Summaries: ${parents.join(", ")}]`)
+    }
+    lines.push("")
+    lines.push(content)
+    return lines.join("\n")
+}
+```
+Volt injects summary IDs and parent summary IDs into the context content before sending it to the LLM. This is critical for the retrieval feature -- it allows the model to reference specific summary IDs for drill-down retrieval.
+
+**Crush** (`/tmp/crush/internal/lcm/store.go`, lines 25-58):
+The `GetCurrentContext` method returns summary content as-is from the database, without injecting summary IDs or parent IDs. There is no equivalent of `formatSummaryContentForContext`.
+
+**Analysis**: Without summary ID injection, the LLM has no way to know which summary ID corresponds to which context entry. This means:
+1. The model cannot request drill-down into a specific summary by ID
+2. The retrieval feature (search + expand) cannot be triggered by the model referencing summary IDs in the context
+3. Token count overhead calculations for formatting headers are also absent
+
+**Recommendation**: Add summary ID/parent injection to `GetCurrentContext` in `store.go`, or implement it in the caller. Also add the corresponding token count overhead calculation. The `SummaryKind` field is already being returned by the query, so the data needed to determine whether to inject parent IDs is available.
+
+---
+
 ## Tables Comparison Matrix
 
 | Volt Table | Crush Equivalent | Ported? | Notes |
@@ -773,8 +861,58 @@ The Crush schema port is **structurally sound** for the core LCM functionality (
 
 1. **Critical**: Two foreign key behaviors changed from RESTRICT to CASCADE (DB-1, DB-2), which could silently corrupt the summary DAG if messages are deleted externally. These should be fixed before production use.
 
-2. **High**: Several Volt tables and columns are omitted (DB-4 through DB-9). Most appear to be intentional scope reductions, but `exploration_summary`/`explorer_used` (DB-7) will be needed if the file exploration feature is ported.
+2. **High**: Several Volt tables and columns are omitted (DB-4 through DB-8). Most appear to be intentional scope reductions, but `exploration_summary`/`explorer_used` (DB-7) will be needed if the file exploration feature is ported.
 
-3. **Medium**: The FTS5 tokenizer should be configured with Porter stemming (DB-13) to match Volt's English language search behavior. Missing indexes (DB-10, DB-11) should be added. The `ExpandSummaryToMessages` query needs recursive support (DB-22).
+3. **Medium**: The FTS5 tokenizer should be configured with Porter stemming (DB-13) to match Volt's English language search behavior. Missing indexes (DB-10, DB-11) should be added. The `GetMessagesToSummarize` query passes token-count values as SQL LIMIT -- effectively no limit -- and lacks Volt's token-budget windowing (DB-21). Context formatting does not inject summary IDs needed for retrieval (DB-32). Message token counts are estimated at query time rather than stored, with inconsistencies between SQL and Go estimation logic (DB-31).
 
-4. **Low**: Various missing queries (DB-23 through DB-27) represent features that may not yet be needed in Crush but should be documented as future work.
+4. **Low**: Various missing queries (DB-23 through DB-27) represent features that may not yet be needed in Crush but should be documented as future work. The `ExpandSummaryToMessages` SQL is non-recursive but application-layer recursion in `retrieval.go` handles this correctly (DB-22).
+
+---
+
+## Review Notes
+
+**Reviewer**: Claude Opus 4.6
+**Review date**: 2026-02-18
+
+### Changes Made During Review
+
+#### Severity Adjustments
+
+- **DB-9** (token_count INTEGER vs BIGINT): **Downgraded from High to Low**. The original audit overstated the risk. SQLite's INTEGER type uses up to 8 bytes (64-bit signed), which is functionally identical to PostgreSQL BIGINT. The Go mapping is `int64`. There is no truncation risk whatsoever. The "High" severity was misleading.
+
+- **DB-22** (ExpandSummaryToMessages non-recursive): **Downgraded from Medium to Low**. The original audit contained a significant factual error. It stated Crush "only expands one level" and that condensed summaries "would return zero results." While the SQL query is indeed non-recursive, Crush implements full recursive DAG traversal in Go application code at `/tmp/crush/internal/lcm/retrieval.go` (the `ExpandSummary` function, lines 10-54). This function first tries direct message expansion, and if no messages are found (as with condensed summaries), it recursively expands parent summaries. It also includes cycle detection, which Volt's SQL-only approach lacks.
+
+#### Analysis Corrections
+
+- **DB-21** (GetMessagesToSummarize LIMIT): Added critical detail about how the LIMIT is actually used. The compactor (`/tmp/crush/internal/lcm/compactor.go`, line 74) passes `budget.SoftThreshold` (a token count, e.g., ~60,000) as the SQL `LIMIT` parameter. This is effectively "no limit" since no session would have that many messages. The original audit correctly identified the row-LIMIT vs token-budget difference but did not note this specific usage pattern, which may be an outright bug in the calling code.
+
+#### New Findings Added
+
+- **DB-31** (Message token counting): Crush's `messages` table has no `token_count` column. LCM queries estimate tokens at query time using `LENGTH(parts)/4`, which is a byte-based estimate on JSON-serialized parts data. This differs from Volt's pre-computed token count and also differs from Crush's own Go-side estimation (`len([]rune(content))/4`), creating an internal inconsistency.
+
+- **DB-32** (Summary context formatting): Volt injects `[Summary ID: ...]` and `[Parent Summaries: ...]` headers into summary content before including it in the context. This is critical for the retrieval feature (allowing the LLM to reference specific summary IDs). Crush does not implement this formatting, returning raw summary content instead. This was missed by the original audit.
+
+#### Verified As Correct (No Changes Needed)
+
+The following findings were verified against actual source code and confirmed accurate:
+
+- **DB-1, DB-2**: Foreign key ON DELETE behavior differences confirmed. File paths, line numbers, and code snippets are accurate. Severity (Critical) is appropriate.
+- **DB-3**: Conversations table mapping confirmed. The `config.go` reference to line 7 for `DefaultCtxCutoffPercent = 60` is accurate.
+- **DB-4, DB-5, DB-6**: Missing tables confirmed absent from Crush. Volt line number references are accurate.
+- **DB-7, DB-8**: Missing columns confirmed. No references to `exploration_summary` or `explorer_used` anywhere in the Crush codebase.
+- **DB-10, DB-11**: Missing indexes confirmed. Crush migration only has `idx_lcm_context_items_pos` and `idx_lcm_large_files_session`.
+- **DB-12, DB-13**: FTS5 configuration verified. Crush uses no tokenizer specification (defaults to `unicode61`); Volt uses `english` text search configuration with stemming.
+- **DB-14, DB-30**: Timestamp inconsistency confirmed. The initial migration comments say "milliseconds" but triggers use `strftime('%s','now')` which returns seconds.
+- **DB-15, DB-16**: Runtime-computed configuration confirmed.
+- **DB-17**: `created_at` omission from `LCMGetSummaryByID` confirmed. Crush `Summary` struct in `types.go` also lacks `CreatedAt`.
+- **DB-18**: TEXT vs jsonb for `file_ids` confirmed as functionally equivalent.
+- **DB-19**: Goose migration format verified. StatementBegin/End wrapping is correct and necessary for trigger definitions.
+- **DB-20**: Hash input differences confirmed. Separator (`|` vs `:`), mtime precision (seconds vs milliseconds), and ID type differences all verified.
+- **DB-23 through DB-27**: Missing queries confirmed absent from Crush.
+- **DB-28, DB-29**: Naming and PK differences confirmed as documented.
+
+#### Items Not Changed But Worth Noting
+
+- The audit's summary table and comparison matrices remain accurate after accounting for the changes above.
+- The Crush codebase includes `LCMGetOldestSummariesInContext` (for condensation) which has no direct equivalent in Volt's `db.ts`. Volt handles this differently through `getSummariesInContext` in `context.ts`. This is not a deficiency in either direction, just a different approach.
+- Crush's `ON CONFLICT DO NOTHING` clauses on `LCMInsertSummary`, `LCMInsertSummaryMessage`, and `LCMInsertSummaryParent` provide idempotency that Volt achieves through transaction-level semantics. This is a positive difference not mentioned in the original audit.
