@@ -35,7 +35,7 @@
 | SC-22 | **MEDIUM** | `shouldSummarizeMessages` Deadlock Risk | Crush returns error when insufficient items exist; can stall the compaction loop | Bug |
 | SC-23 | **LOW** | Summary `Parents` field missing from Crush type | Volt `Summary.Info` has `parents` array; Crush `Summary` struct has no `Parents` field | Omission |
 | SC-24 | **LOW** | Compaction Loop Indexing | Crush uses 0-indexed rounds (0-9); Volt uses 1-indexed (1-10) | Divergence |
-| SC-25 | **MEDIUM** | File IDs Not Appended to Normal/Aggressive Summary Content in Crush | Crush only appends file IDs to content text in fallback; Volt appends in all levels | Divergence |
+| SC-25 | **MEDIUM** | File IDs Not Appended to Normal/Aggressive Content in Crush | Crush only appends file IDs to content text in fallback (summarization and condensation); Volt appends in all levels | Divergence |
 | SC-26 | **LOW** | Volt Regex Cannot Match Own Plural File ID Format | `LCM File ID:` regex does not match `LCM File IDs:` that Volt writes | Bug |
 | SC-27 | **INFO** | `DEFAULT_OUTPUT_RESERVE` Missing from Constants Table | Both use 20000 but not listed in SC-18 | OK |
 
@@ -47,7 +47,7 @@
 
 ### SC-1: Token Estimation Divergence [HIGH]
 
-**Volt** (`/tmp/volt/packages/voltcode/src/util/token.ts`, line 5):
+**Volt** (`/tmp/volt/packages/voltcode/src/util/token.ts`, lines 4-6):
 ```typescript
 export function estimate(input: string) {
   return Math.max(0, Math.round((input || "").length / CHARS_PER_TOKEN))
@@ -147,7 +147,7 @@ const finalContent =
 ```
 Volt appends a **single line**: `[LCM File IDs: file_aaa, file_bbb, file_ccc]`
 
-**Crush** (`/tmp/crush/internal/lcm/summarizer.go`, lines 121-125):
+**Crush** (`/tmp/crush/internal/lcm/summarizer.go`, lines 122-125):
 ```go
 var metadata strings.Builder
 for _, id := range fileIDs {
@@ -396,7 +396,7 @@ fmt.Fprintf(&metadata, "[Condensed from: %s]", strings.Join(parentIDs, ", "))
 for _, id := range fileIDs {
     fmt.Fprintf(&metadata, "\n[LCM File ID: %s]", id)
 }
-fmt.Fprintf(&metadata, "\n[Truncated from %d tokens to <=%d tokens]",
+fmt.Fprintf(&metadata, "\n[Truncated from %d tokens to ≤%d tokens]",
     EstimateTokenCount(bestOutput), FallbackMaxTokens)
 ```
 Uses individual `[LCM File ID: ...]` lines and omits the block entirely if no file IDs exist.
@@ -603,7 +603,7 @@ func (c *Compactor) shouldSummarizeMessages(
     }
     if summaryCount < 1 {
         return false, fmt.Errorf(
-            "insufficient items for compaction: %d messages (need %d), %d summaries (need >=1)",
+            "insufficient items for compaction: %d messages (need %d), %d summaries (need ≥1)",
             messageCount, MinMessagesToSummarize, summaryCount,
         )
     }
@@ -735,7 +735,7 @@ However, Volt uses `Map<number, Promise>` (keyed by conversationId, which is num
 - SC-1: Token estimation divergence can cause compaction to trigger at different points
 - SC-2: Summary ID generation is fundamentally different, affecting idempotency and deduplication
 - SC-3: Compaction architecture divergence means different compaction behavior in practice
-- SC-4: File ID format mismatch prevents cross-system summary parsing (also: Crush normal/aggressive levels do not append file IDs to content text, unlike Volt)
+- SC-4: File ID format mismatch prevents cross-system summary parsing (see also SC-25: Crush normal/aggressive levels do not append file IDs to content text in either summarization or condensation, unlike Volt)
 
 **Medium-Risk Items (Should Address):**
 - SC-5: Reserve computation difference for low-output models
@@ -748,11 +748,15 @@ However, Volt uses `Map<number, Promise>` (keyed by conversationId, which is num
 - SC-19: Ignored database errors in progress check
 - SC-21: Batch condensation (5) vs. all-at-once changes compaction efficiency
 - SC-22: Error from `shouldSummarizeMessages` can stall compaction permanently
+- SC-25: Crush normal/aggressive summarization and condensation do not append file IDs to content text
 
 **Low-Risk Items (Document or Accept):**
 - SC-12, SC-13, SC-14, SC-15, SC-23: Minor inconsistencies that are unlikely to cause issues in practice
 - SC-16, SC-17, SC-18: Verified equivalent or correct
 - SC-20: `CRITICAL_THRESHOLD_MULTIPLIER` is dead code in Volt (defined but never used); neither system implements the described behavior
+- SC-24: Compaction loop indexing difference (0-indexed vs. 1-indexed); cosmetic
+- SC-26: Volt regex cannot re-extract file IDs from its own plural format; likely by design
+- SC-27: `DEFAULT_OUTPUT_RESERVE` constant not listed in SC-18 table; informational only
 
 ---
 
@@ -776,7 +780,7 @@ Both execute exactly 10 rounds, but the round number returned in results differs
 
 ---
 
-### SC-25: Crush Normal/Aggressive Summarization Does Not Append File IDs to Content [MEDIUM]
+### SC-25: Crush Normal/Aggressive Summarization and Condensation Do Not Append File IDs to Content [MEDIUM]
 
 **Crush** `summarizeNormal` (`/tmp/crush/internal/lcm/summarizer.go`, lines 77-84):
 ```go
@@ -798,7 +802,9 @@ const finalContent =
 
 Volt appends file IDs to the summary content text in **all three** escalation levels (normal, aggressive, fallback). Crush only appends them in the **fallback** level. In the normal and aggressive levels, Crush stores them in the `FileIDs` struct field but the content text has no file ID markers.
 
-**Impact:** When the LLM sees summary content in context (e.g., during condensation), Crush's normal/aggressive summaries will not contain file ID references in the text. This means the LLM cannot preserve file IDs during condensation unless they are injected separately. The `aggregateFileIDs` function (`summarizer.go` lines 321-338) compensates by extracting from both `summary.FileIDs` and `summary.Content`, but downstream consumers that only have the content text will miss the file IDs.
+The same pattern applies to **condensation**: Crush's `condenseNormal` (lines 169-191) and `condenseAggressive` (lines 193-216) do not append file IDs to content, only setting the struct field. Only `condenseFallback` (lines 218-247) appends them. In contrast, Volt's `condenseSummaries` (condense.ts lines 144-146) and `condenseSummariesAggressive` (condense.ts lines 260-262) both append `[LCM File IDs: ...]` to the content text.
+
+**Impact:** When the LLM sees summary content in context (e.g., during condensation), Crush's normal/aggressive summaries and condensed summaries will not contain file ID references in the text. This means the LLM cannot preserve file IDs during condensation unless they are injected separately. The `aggregateFileIDs` function (`summarizer.go` lines 321-338) compensates by extracting from both `summary.FileIDs` and `summary.Content`, but downstream consumers that only have the content text will miss the file IDs.
 
 ---
 
@@ -889,3 +895,32 @@ The following findings were verified as accurate with correct file paths, line n
 - `/tmp/crush/internal/lcm/lcm_test.go`
 
 **Note:** The task listed `/tmp/volt/packages/voltcode/src/session/lcm/compaction.ts` and `/tmp/volt/packages/voltcode/src/session/lcm/types.ts` as source files, but neither file exists. The compaction logic in Volt is in `context.ts` (the `compactUntilUnderLimit` function), and the types are in `summary.ts`.
+
+---
+
+### Second-Pass Verification
+
+**Second-pass review performed:** 2026-02-18
+**Methodology:** Independent re-read of the full audit document and every source file referenced. All line numbers, code snippets, severity ratings, comparative claims, constants, formulas, and the first-pass Review Notes were cross-referenced against the actual source code.
+
+**Overall assessment:** The first-pass review was thorough and the vast majority of findings, corrections, and new additions were accurate. The following minor issues were identified and corrected in this second pass:
+
+#### Corrections Applied (Second Pass)
+
+1. **SC-1 line number**: Changed Volt file reference from "line 5" to "lines 4-6". The function declaration begins at line 4 (`export function estimate(...)`) and the code snippet spans lines 4-6. The original "line 5" pointed only to the `return` statement inside the function body.
+
+2. **SC-4 Crush line numbers**: Changed from "lines 121-125" to "lines 122-125". The quoted code snippet (`var metadata strings.Builder` through `}`) starts at line 122, not 121. Line 121 is `fileIDs := extractFileIDsFromMessages(originalMessages)` which was not included in the quote.
+
+3. **SC-13 code snippet**: Fixed `<=%d` to `≤%d` in the Crush `condenseFallback` code snippet. The actual source code at `summarizer.go` line 235 uses the Unicode less-than-or-equal sign `≤`, not the ASCII `<=`. This was an encoding/transcription error introduced during the first review pass.
+
+4. **SC-22 code snippet**: Fixed `>=1` to `≥1` in the Crush `shouldSummarizeMessages` error message. The actual source code at `compactor.go` line 166 uses the Unicode greater-than-or-equal sign `≥`, not the ASCII `>=`. Same class of transcription error as above.
+
+5. **SC-25 scope expanded**: The finding previously only mentioned summarization, but the same divergence applies to condensation. Crush's `condenseNormal` (summarizer.go lines 169-191) and `condenseAggressive` (lines 193-216) do not append file IDs to content text -- only `condenseFallback` (lines 218-247) does. In contrast, Volt's `condenseSummaries` and `condenseSummariesAggressive` both append `[LCM File IDs: ...]` to the content. Updated the finding title, summary table entry, and detailed description accordingly.
+
+6. **Risk Summary section**: Added SC-24, SC-25, SC-26, and SC-27 which were added as new findings during the first review pass but were not included in the Risk Summary classification.
+
+#### Verified Accurate (Second Pass)
+
+All other findings, including the first-pass corrections (SC-1 addition, SC-4 expansion, SC-6 dead-code clarification, SC-7 line fix, SC-11 line fix, SC-20 severity downgrade, SC-22 code fix, summary table updates, risk summary reorganization, and all four new findings SC-24 through SC-27), were verified as accurate.
+
+No contradictions were found between findings. The summary table matches the detailed findings after corrections. Constants and formula values are exact matches to source code.

@@ -207,14 +207,21 @@ FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 Uses a window function to compute a running token sum and selects messages up to a token budget:
 ```sql
 WITH msgs AS (
-    SELECT ci.position, ci.message_id, m.token_count,
-           SUM(m.token_count) OVER (ORDER BY ci.position) AS running_tokens
+    SELECT
+        ci.position,
+        ci.message_id,
+        m.token_count,
+        SUM(m.token_count) OVER (ORDER BY ci.position) AS running_tokens
     FROM context_items ci
     JOIN messages m ON m.message_id = ci.message_id
-    WHERE ci.conversation_id = ${conversationId} AND ci.item_type = 'message'
+    WHERE ci.conversation_id = ${conversationId}
+        AND ci.item_type = 'message'::context_item_type
+    ORDER BY ci.position
 )
-SELECT position, message_id FROM msgs
+SELECT position, message_id
+FROM msgs
 WHERE running_tokens <= ${tokenBudget}
+ORDER BY position
 ```
 Additionally, Volt has a fallback: if the oldest message alone exceeds the budget, it still returns that one message to ensure progress.
 
@@ -319,9 +326,11 @@ Multiple locations perform `int(row.Position)`, `int(tc)`, `int(count)` etc., co
 
 ### SQ-15: Missing Null Byte Escaping [LOW]
 
-**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 20-21):
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 19-21):
 ```typescript
+/** Escape null bytes (0x00) which PostgreSQL text columns reject */
 const escNull = (s: string) => s.replaceAll("\0", "\\x00")
+const escNullOpt = (s: string | null | undefined) => (s != null ? escNull(s) : s)
 ```
 All text content inserted into PostgreSQL is sanitized to escape NUL bytes, which PostgreSQL text columns reject.
 
@@ -465,7 +474,7 @@ Crush's `GetFormattedContext` function (`/tmp/crush/internal/lcm/context.go`, li
 **Crush** (`/tmp/crush/internal/lcm/context.go`, lines 50-58):
 `GetSummaryFormattingOverhead` uses `EstimateTokenCount(strings.Join(lines, "\n"))`, which computes `len([]rune(content)) / CharsPerToken` (Unicode code points).
 
-For ASCII-only formatting strings (like `[Summary ID: sum_xxx]`), these produce the same results. For summary IDs and parent IDs (which are hex strings), they are always equivalent. This is a cosmetic inconsistency with no practical impact.
+For ASCII-only formatting strings (like `[Summary ID: sum_xxx]`), UTF-16 code units and Unicode code points are the same, so the character counts match. However, Volt uses `Math.ceil()` (rounds up) while Crush uses Go integer division (rounds down/truncates), which can produce a difference of 1 token for the same string. For example, a 34-character formatting string yields 9 in Volt (`Math.ceil(34/4)`) vs 8 in Crush (`34/4` integer division). This is a negligible difference with no practical impact on compaction behavior.
 
 ---
 
@@ -509,7 +518,7 @@ This section documents corrections and additions made during the verification re
 
 1. **SQ-21 (MEDIUM)**: `GetContextTokenCount` in Crush's SQL does not include the summary formatting overhead (`[Summary ID: ...]` and `[Parent Summaries: ...]` headers). Volt's equivalent function (`getContextTokenCount` at db.ts lines 1003-1037) iterates over entries and adds this overhead. Crush's `GetFormattedContext` (context.go lines 9-35) correctly adds the overhead to individual entries, but the aggregate token count used by the compactor for threshold decisions omits it.
 
-2. **SQ-22 (LOW)**: Volt's `LargeFileThreshold.estimateTokenCount` uses JavaScript `content.length / 4` (UTF-16 code units) while Crush's `EstimateTokenCount` uses `len([]rune(content)) / CharsPerToken` (Unicode code points). These differ for supplementary Unicode characters (emoji, rare CJK), where JS counts 2 code units per character. No practical impact since the affected formatting strings are ASCII-only hex identifiers.
+2. **SQ-22 (LOW)**: Volt's `LargeFileThreshold.estimateTokenCount` uses JavaScript `Math.ceil(content.length / 4)` (UTF-16 code units, rounded up) while Crush's `EstimateTokenCount` uses `len([]rune(content)) / CharsPerToken` (Unicode code points, truncated). These differ for supplementary Unicode characters (emoji, rare CJK), where JS counts 2 code units per character. Additionally, the rounding differs: `Math.ceil()` vs Go integer division. No practical impact since the affected formatting strings are ASCII-only hex identifiers and the rounding difference is at most 1 token.
 
 ### Verified Correct (No Changes Needed)
 
@@ -530,3 +539,19 @@ This section documents corrections and additions made during the verification re
 - **SQ-18**: FTS5 JOIN on rowid confirmed correct for content-sync FTS5 tables. Migration at lines 75-78 confirms `content=lcm_summaries, content_rowid=rowid`.
 - **SQ-19**: Naming convention divergence accurately described.
 - **SQ-20**: Atomicity difference accurately described. Volt transaction at `db.ts` lines 720-769. Crush `AppendContextItem` at `store.go` lines 76-90 and `lcm.sql` lines 33-37 confirmed.
+
+### Second-Pass Verification (2026-02-18)
+
+Independent second-pass review completed. All 22 findings, the summary table, the cross-cutting observations, and the first-pass review notes were re-verified against the actual source files in both codebases.
+
+**Corrections applied in this pass:**
+
+1. **SQ-8 (Code quote accuracy)**: The Volt SQL quote for `getMessagesToSummarize` was a simplified paraphrase rather than an exact copy of the source. Replaced with the verbatim SQL from `db.ts` lines 1048-1065, which includes the `::context_item_type` enum cast, the `ORDER BY ci.position` clause inside the CTE, and the `ORDER BY position` clause on the outer query. These details do not change the finding's analysis or severity.
+
+2. **SQ-15 (Line number consistency)**: The finding body referenced `db.ts` "lines 20-21" but the Review Notes section referenced "lines 19-21". Updated the finding body to "lines 19-21" and expanded the code quote to include the JSDoc comment (line 19) and the `escNullOpt` companion function (line 21) for completeness.
+
+3. **SQ-22 (Rounding difference)**: The original claim that Volt and Crush "produce the same results" for ASCII formatting strings was slightly inaccurate. Volt uses `Math.ceil(content.length / 4)` (rounds up) while Crush uses Go integer division `len([]rune(content)) / 4` (truncates). For a 34-character string, Volt yields 9 tokens vs Crush's 8. Updated the finding detail and the Review Notes entry to document this rounding divergence. Severity remains LOW as the difference is at most 1 token per formatting string.
+
+**Confirmed accurate (no changes needed):**
+
+All remaining findings (SQ-1 through SQ-7, SQ-9 through SQ-14, SQ-16 through SQ-21), the summary table, and the first-pass review notes were independently verified against source files. File paths, line numbers, code quotes, SQL queries, type mappings, severity ratings, and Volt-vs-Crush comparative claims are all accurate. No contradictions were found between findings. The summary table correctly reflects all detailed findings.

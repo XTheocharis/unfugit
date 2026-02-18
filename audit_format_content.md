@@ -624,7 +624,7 @@ The `aggregateFileIDs` function in Crush (used during condensation) returns file
 | FC-1 | Finish struct at content.go:119-124 confirmed. partData at format.go:79-93 confirmed. Switch at line 51-52 confirmed as no-op. |
 | FC-2 | ReasoningContent at content.go:45-53 confirmed with all 7 fields. partData only has Thinking. Switch at line 48-49 confirmed. |
 | FC-3 | ToolCall.ProviderExecuted at content.go:101 confirmed. Not in partData. |
-| FC-4 | ToolResult at content.go:107-115 confirmed with 6 fields. partData maps 3. |
+| FC-4 | ToolResult at content.go:107-115 confirmed with 7 fields. partData maps 4 (ToolCallID, Name, Content, IsError). Consistent with Changes Made correction. |
 | FC-5 | ImageURLContent at content.go:70-73 confirmed. Switch at line 53 confirmed. |
 | FC-9 | Volt summarize.ts:188 `[Tool: ${part.tool}]` confirmed. Crush format.go:34 `[Tool Call: %s]` confirmed. |
 | FC-10 | Volt summarize.ts:194 `output.slice(0, 1000)` confirmed. Crush format.go:43-46 `runeAwareTruncate(d.Content, 1000)` confirmed. |

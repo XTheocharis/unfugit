@@ -40,7 +40,7 @@
 | DB-26 | **Low** | Missing Query | No `getChildSummaryIds` equivalent in Crush | Feature gap |
 | DB-27 | **Low** | Missing Query | No `getAncestorConversationIds` equivalent in Crush | Feature gap |
 | DB-31 | **Medium** | Token Counting | Crush `messages` has no `token_count` column; LCM queries estimate via `LENGTH(parts)/4` | Behavioral difference -- less accurate |
-| DB-32 | **Medium** | Context Formatting | Summary ID/parent injection into context content not implemented in Crush | Feature gap -- affects retrieval |
+| DB-32 | ~~Medium~~ **Withdrawn** | Context Formatting | ~~Summary ID/parent injection into context content not implemented in Crush~~ **Implemented in `context.go`** | ~~Feature gap~~ Correctly implemented |
 | DB-28 | **Info** | Naming | Crush tables prefixed with `lcm_`; Volt tables are unprefixed | Intentional -- avoids conflicts |
 | DB-29 | **Info** | Primary Key | Volt `messages.message_id` is auto-increment BIGINT; Crush `messages.id` is TEXT (UUID) | Pre-existing Crush design |
 | DB-30 | **Medium** | Timestamp Inconsistency | Existing Crush `sessions`/`messages` use millisecond timestamps; LCM tables use second timestamps | Internal inconsistency |
@@ -745,12 +745,12 @@ END AS token_count
 
 ---
 
-### DB-32: Summary ID/Parent Injection into Context Content Not Implemented in Crush
+### DB-32: ~~Summary ID/Parent Injection into Context Content Not Implemented in Crush~~ **WITHDRAWN**
 
-**Severity**: Medium
+**Severity**: ~~Medium~~ **Withdrawn** (finding was factually incorrect)
 **Category**: Context Formatting
 
-**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 963-994):
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/db.ts`, lines 963-972):
 ```typescript
 function formatSummaryContentForContext(summaryId: string, content: string, parents: string[]): string {
     const lines: string[] = []
@@ -763,17 +763,29 @@ function formatSummaryContentForContext(summaryId: string, content: string, pare
     return lines.join("\n")
 }
 ```
-Volt injects summary IDs and parent summary IDs into the context content before sending it to the LLM. This is critical for the retrieval feature -- it allows the model to reference specific summary IDs for drill-down retrieval.
 
-**Crush** (`/tmp/crush/internal/lcm/store.go`, lines 25-58):
-The `GetCurrentContext` method returns summary content as-is from the database, without injecting summary IDs or parent IDs. There is no equivalent of `formatSummaryContentForContext`.
+**Crush** (`/tmp/crush/internal/lcm/context.go`, lines 10-58):
+Crush **does** implement summary ID/parent injection via `GetFormattedContext()`, `FormatSummaryForContext()`, and `GetSummaryFormattingOverhead()`:
 
-**Analysis**: Without summary ID injection, the LLM has no way to know which summary ID corresponds to which context entry. This means:
-1. The model cannot request drill-down into a specific summary by ID
-2. The retrieval feature (search + expand) cannot be triggered by the model referencing summary IDs in the context
-3. Token count overhead calculations for formatting headers are also absent
+```go
+// context.go lines 38-47
+func FormatSummaryForContext(summaryID string, content string, parentIDs []string) string {
+    var builder strings.Builder
+    fmt.Fprintf(&builder, "[Summary ID: %s]\n", summaryID)
+    if len(parentIDs) > 0 {
+        fmt.Fprintf(&builder, "[Parent Summaries: %s]\n", strings.Join(parentIDs, ", "))
+    }
+    builder.WriteString("\n")
+    builder.WriteString(content)
+    return builder.String()
+}
+```
 
-**Recommendation**: Add summary ID/parent injection to `GetCurrentContext` in `store.go`, or implement it in the caller. Also add the corresponding token count overhead calculation. The `SummaryKind` field is already being returned by the query, so the data needed to determine whether to inject parent IDs is available.
+The `GetFormattedContext` wrapper (lines 10-35) retrieves raw context via `store.GetCurrentContext()`, then iterates over entries and injects summary IDs and parent IDs for summary items, including token overhead calculation. This is functionally equivalent to Volt's approach.
+
+**Analysis**: The previous review only examined `store.go`'s `GetCurrentContext()` (the raw database layer) and incorrectly concluded that formatting was absent. In fact, the application layer in `context.go` provides the formatting wrapper, following the same pattern as DB-22 (where SQL is non-recursive but application code handles recursion). The feature is correctly implemented.
+
+**Recommendation**: No action needed. The implementation is functionally equivalent to Volt.
 
 ---
 
@@ -863,7 +875,7 @@ The Crush schema port is **structurally sound** for the core LCM functionality (
 
 2. **High**: Several Volt tables and columns are omitted (DB-4 through DB-8). Most appear to be intentional scope reductions, but `exploration_summary`/`explorer_used` (DB-7) will be needed if the file exploration feature is ported.
 
-3. **Medium**: The FTS5 tokenizer should be configured with Porter stemming (DB-13) to match Volt's English language search behavior. Missing indexes (DB-10, DB-11) should be added. The `GetMessagesToSummarize` query passes token-count values as SQL LIMIT -- effectively no limit -- and lacks Volt's token-budget windowing (DB-21). Context formatting does not inject summary IDs needed for retrieval (DB-32). Message token counts are estimated at query time rather than stored, with inconsistencies between SQL and Go estimation logic (DB-31).
+3. **Medium**: The FTS5 tokenizer should be configured with Porter stemming (DB-13) to match Volt's English language search behavior. Missing indexes (DB-10, DB-11) should be added. The `GetMessagesToSummarize` query passes token-count values as SQL LIMIT -- effectively no limit -- and lacks Volt's token-budget windowing (DB-21). Message token counts are estimated at query time rather than stored, with inconsistencies between SQL and Go estimation input data (DB-31). ~~DB-32 was withdrawn -- context formatting IS implemented in `context.go`.~~
 
 4. **Low**: Various missing queries (DB-23 through DB-27) represent features that may not yet be needed in Crush but should be documented as future work. The `ExpandSummaryToMessages` SQL is non-recursive but application-layer recursion in `retrieval.go` handles this correctly (DB-22).
 
@@ -888,9 +900,9 @@ The Crush schema port is **structurally sound** for the core LCM functionality (
 
 #### New Findings Added
 
-- **DB-31** (Message token counting): Crush's `messages` table has no `token_count` column. LCM queries estimate tokens at query time using `LENGTH(parts)/4`, which is a byte-based estimate on JSON-serialized parts data. This differs from Volt's pre-computed token count and also differs from Crush's own Go-side estimation (`len([]rune(content))/4`), creating an internal inconsistency.
+- **DB-31** (Message token counting): Crush's `messages` table has no `token_count` column. LCM queries estimate tokens at query time using `LENGTH(parts)/4`, which is a character-count-based estimate on JSON-serialized parts data (SQLite's `LENGTH()` on TEXT returns character count, not byte count). This differs from Volt's pre-computed token count. The SQL estimation and Go-side estimation (`len([]rune(content))/4`) use the same unit (characters/runes), but operate on different input data: SQL uses JSON-serialized `parts`, while Go uses the raw content string.
 
-- **DB-32** (Summary context formatting): Volt injects `[Summary ID: ...]` and `[Parent Summaries: ...]` headers into summary content before including it in the context. This is critical for the retrieval feature (allowing the LLM to reference specific summary IDs). Crush does not implement this formatting, returning raw summary content instead. This was missed by the original audit.
+- **DB-32** (Summary context formatting): **WITHDRAWN -- factually incorrect.** The previous review stated that Crush does not implement summary ID/parent injection. This was wrong. Crush implements this formatting in `/tmp/crush/internal/lcm/context.go` via `GetFormattedContext()` (lines 10-35), `FormatSummaryForContext()` (lines 38-47), and `GetSummaryFormattingOverhead()` (lines 50-58). The previous review only examined `store.go`'s `GetCurrentContext()` (the raw DB layer) and missed the application-layer wrapper in `context.go`. The implementation is functionally equivalent to Volt's `formatSummaryContentForContext()` in `db.ts`.
 
 #### Verified As Correct (No Changes Needed)
 
@@ -916,3 +928,72 @@ The following findings were verified against actual source code and confirmed ac
 - The audit's summary table and comparison matrices remain accurate after accounting for the changes above.
 - The Crush codebase includes `LCMGetOldestSummariesInContext` (for condensation) which has no direct equivalent in Volt's `db.ts`. Volt handles this differently through `getSummariesInContext` in `context.ts`. This is not a deficiency in either direction, just a different approach.
 - Crush's `ON CONFLICT DO NOTHING` clauses on `LCMInsertSummary`, `LCMInsertSummaryMessage`, and `LCMInsertSummaryParent` provide idempotency that Volt achieves through transaction-level semantics. This is a positive difference not mentioned in the original audit.
+
+---
+
+### Second-Pass Verification
+
+**Reviewer**: Claude Opus 4.6
+**Verification date**: 2026-02-18
+
+#### Methodology
+
+All 32 findings were independently cross-referenced against the actual source files. Every line number, code snippet, severity rating, and comparative claim was checked against:
+- `/tmp/volt/packages/voltcode/src/session/lcm/db.ts` (2028 lines)
+- `/tmp/crush/internal/db/migrations/20260218000000_create_lcm_tables.sql` (111 lines)
+- `/tmp/crush/internal/db/sql/lcm.sql` (105 lines)
+- `/tmp/crush/internal/db/lcm.sql.go` (475 lines)
+- `/tmp/crush/internal/db/models.go` (96 lines)
+- `/tmp/crush/internal/lcm/store.go` (339 lines)
+- `/tmp/crush/internal/lcm/context.go` (58 lines)
+- `/tmp/crush/internal/lcm/retrieval.go` (74 lines)
+- `/tmp/crush/internal/lcm/compactor.go` (171 lines)
+- `/tmp/crush/internal/lcm/config.go` (109 lines)
+- `/tmp/crush/internal/lcm/largefile.go` (80 lines)
+- `/tmp/crush/internal/lcm/types.go` (119 lines)
+- `/tmp/crush/internal/lcm/format.go` (139 lines)
+- `/tmp/crush/internal/lcm/replace.go` (129 lines)
+- `/tmp/crush/internal/db/migrations/20250424200609_initial.sql` (98 lines)
+
+#### Errors Found and Corrected
+
+1. **DB-32 WITHDRAWN -- Factually incorrect finding introduced by previous review.**
+   The first review added DB-32 claiming "Summary ID/parent injection into context content not implemented in Crush." This was wrong. Crush implements this feature in `/tmp/crush/internal/lcm/context.go`:
+   - `GetFormattedContext()` (lines 10-35) wraps `store.GetCurrentContext()` and injects summary metadata
+   - `FormatSummaryForContext()` (lines 38-47) formats `[Summary ID: ...]` and `[Parent Summaries: ...]` headers
+   - `GetSummaryFormattingOverhead()` (lines 50-58) calculates token overhead
+
+   The previous review only examined `store.go`'s `GetCurrentContext()` (the raw database layer) and missed the application-layer wrapper. This is the same architectural pattern as DB-22, where the SQL is simple but Go application code provides the full behavior. The finding has been withdrawn.
+
+2. **DB-31 Review Notes description corrected.**
+   The first review's summary of DB-31 incorrectly described `LENGTH(parts)/4` as "a byte-based estimate." SQLite's `LENGTH()` on TEXT returns character count (equivalent to Go's rune count), not byte count. The detailed DB-31 finding already stated this correctly ("SQLite's LENGTH() for TEXT returns the character count"), so this was an internal contradiction within the review notes. Corrected to "character-count-based."
+
+3. **Conclusion section updated** to remove the now-withdrawn DB-32 reference.
+
+#### Verified As Correct (No Changes Needed)
+
+All line numbers, code snippets, severity ratings, and comparative claims for the following findings were independently verified against source files and confirmed accurate:
+
+- **DB-1, DB-2**: FK ON DELETE behavior differences. All line numbers, code snippets, and severity (Critical) confirmed.
+- **DB-3**: Conversations/sessions mapping. Config.go line 7 reference confirmed.
+- **DB-4, DB-5, DB-6**: Missing tables confirmed absent.
+- **DB-7, DB-8**: Missing columns confirmed.
+- **DB-9**: Severity downgrade to Low justified. SQLite INTEGER is 64-bit. Go mapping is int64.
+- **DB-10, DB-11**: Missing indexes confirmed.
+- **DB-12, DB-13**: FTS5 configuration differences confirmed.
+- **DB-14, DB-30**: Timestamp inconsistency confirmed. Trigger uses `strftime('%s','now')` (seconds) despite "milliseconds" comments.
+- **DB-15, DB-16**: Runtime configuration confirmed.
+- **DB-17**: `created_at` omission confirmed. Summary struct lacks CreatedAt.
+- **DB-18**: TEXT vs jsonb confirmed equivalent.
+- **DB-19**: Goose format verified correct, all line references accurate.
+- **DB-20**: Hash input differences confirmed (separator, mtime precision, ID type).
+- **DB-21**: Row LIMIT vs token budget confirmed. Compactor.go line 74 passes `budget.SoftThreshold` as row LIMIT.
+- **DB-22**: Previous review's downgrade to Low confirmed correct. Recursive expansion in retrieval.go verified.
+- **DB-23 through DB-27**: Missing queries confirmed absent.
+- **DB-28, DB-29**: Naming and PK differences confirmed.
+- **DB-31**: Token counting difference confirmed. SQL operates on JSON-serialized `parts`, Go operates on raw content.
+- All comparison matrices (tables, indexes, FK behavior, CHECK constraints, Goose format) verified accurate.
+
+#### No Other Issues Found
+
+The summary table matches the detailed findings (after DB-32 correction). No contradictions exist between findings. No findings were missed by either the original audit or the first review pass (beyond the DB-32 error documented above).
