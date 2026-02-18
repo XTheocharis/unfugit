@@ -30,6 +30,10 @@ The following errors/omissions were found during plan verification and are addre
 | E18 | `LlmMapRunConfig` type referenced in Phase 7.1 is never defined | Define in Phase 6.2 |
 | E19 | `SearchMessages`/`SearchMessagesRegex` raw SQL missing `m.token_count` | Add to SELECT in Go SQL strings |
 | E20 | `querier.go` Querier interface missing 7 methods from commit 7129b82 + no plan to update for new queries | Update interface for all new methods |
+| E21 | `RegisterLLMExplorer` uses `Register()` (append) but LLM explorer ends up AFTER TextExplorer/FallbackExplorer and is never reached | Insert at specific position before catch-all explorers |
+| E22 | Phase 1.5 creates llm_map tables but doesn't mention adding `LlmMapRun`/`LlmMapItem` structs to `models.go` | Add explicit struct definitions |
+| E23 | Prepared statement count says "~18 new / ~67 total" but actual is ~21 new / ~70 total | Correct the numbers |
+| E24 | Store interface grows in Phases 3, 5, 6 but mockStore expansion is entirely deferred to Phase 8 — code won't compile between phases | Add mock stubs incrementally with each Store interface change |
 
 ---
 
@@ -213,6 +217,11 @@ CREATE TABLE IF NOT EXISTS llm_map_items (
 CREATE INDEX IF NOT EXISTS llm_map_items_status_idx ON llm_map_items(map_id, status, item_index);
 
 -- +goose StatementEnd
+```
+
+**File:** `crush/internal/db/models.go` — add `LlmMapRun` and `LlmMapItem` structs **(E22)**.
+
+```sql
 
 -- +goose Down
 -- +goose StatementBegin
@@ -369,14 +378,14 @@ WHERE file_id = ? AND exploration_summary IS NOT NULL;
 - `crush/internal/db/lcm.sql.go` — extend with new LCM queries (token-budget windowed, exploration cache)
 - `crush/internal/db/db.go` — add new prepared statements to `Queries` struct, `Prepare()`, `Close()`, `WithTx()`
 
-Current `db.go` has 49 prepared statements. New additions:
+Current `db.go` has 49 prepared statements. New additions **(E23: corrected count)**:
 - `lCMGetMessagesToSummarizeByTokenBudgetStmt`
 - `lCMUpdateLargeFileExplorationStmt`
 - `lCMGetLargeFileExplorationStmt`
 - All message_parts CRUD stmts (~4)
 - All agentic_map CRUD stmts (~7)
 - All llm_map CRUD stmts (~7)
-Total: ~67 statements after changes.
+Total: ~21 new, ~70 statements after changes.
 
 ### 2.7 Update Querier interface (E20)
 
@@ -449,6 +458,13 @@ GetMessagesToSummarizeByTokenBudget(ctx context.Context, sessionID string, token
 ```
 
 **File:** `crush/internal/lcm/store.go` — implement method using the new windowed SQL query.
+
+**File:** `crush/internal/lcm/lcm_test.go` — add mock stub **(E24: incremental mock expansion)**:
+```go
+func (m *mockStore) GetMessagesToSummarizeByTokenBudget(_ context.Context, _ string, _ int) ([]lcm.ContextEntry, error) {
+    return nil, nil
+}
+```
 
 **File:** `crush/internal/lcm/compactor.go`
 
@@ -540,6 +556,8 @@ func (c *Compactor) condenseSummariesOnce(ctx context.Context, sessionID string)
 ### 4.2 Summary ID generation from content+timestamp (SC-2, E3)
 
 **File:** `crush/internal/lcm/summarizer.go`
+
+Add `"time"` to the import block (currently not imported).
 
 Change `generateSummaryID` (line 278) to hash the summary **output** content + timestamp:
 ```go
@@ -703,6 +721,16 @@ SetLargeFileExploration(ctx context.Context, fileID string, result *ExplorationR
 
 **File:** `crush/internal/lcm/store.go` — implement both methods using the new SQL queries from Phase 2.4.
 
+**File:** `crush/internal/lcm/lcm_test.go` — add mock stubs **(E24)**:
+```go
+func (m *mockStore) GetLargeFileExploration(_ context.Context, _ string) (*lcm.ExplorationResult, error) {
+    return nil, fmt.Errorf("not cached")
+}
+func (m *mockStore) SetLargeFileExploration(_ context.Context, _ string, _ *lcm.ExplorationResult) error {
+    return nil
+}
+```
+
 **Cache reconstruction note (E17):** The SQL only stores `exploration_summary` and `explorer_used`. When reading from cache, derive the remaining fields:
 ```go
 func (s *SQLiteStore) GetLargeFileExploration(ctx context.Context, fileID string) (*ExplorationResult, error) {
@@ -809,11 +837,16 @@ func NewExplorerRegistry() *ExplorerRegistry {
 }
 
 // RegisterLLMExplorer adds an LLM-based explorer when an LLMClient is available.
+// E21: Must INSERT before TextExplorer/FallbackExplorer, not append — otherwise
+// the catch-all explorers match first and the LLM explorer is never reached.
 func (r *ExplorerRegistry) RegisterLLMExplorer(client LLMClient, model string) {
-    // Insert before TextExplorer (second-to-last) so it takes priority
-    // over plain text truncation for supported types
     llmExplorer := &LLMSummaryExplorer{client: client, model: model}
-    r.Register(llmExplorer)
+    // Insert before the last 2 entries (TextExplorer, FallbackExplorer)
+    pos := len(r.explorers) - 2
+    if pos < 0 {
+        pos = 0
+    }
+    r.explorers = append(r.explorers[:pos], append([]Explorer{llmExplorer}, r.explorers[pos:]...)...)
 }
 ```
 
@@ -897,6 +930,22 @@ GetLlmMapItemsByStatus(ctx context.Context, mapID, status string) ([]LlmMapItem,
 ```
 
 **File:** `crush/internal/lcm/store.go` — implement all map Store methods.
+
+**File:** `crush/internal/lcm/lcm_test.go` — add mock stubs for all 12 map methods **(E24)**:
+```go
+func (m *mockStore) CreateAgenticMapRun(_ context.Context, _ *lcm.AgenticMapRun) error { return nil }
+func (m *mockStore) GetAgenticMapRun(_ context.Context, _ string) (*lcm.AgenticMapRun, error) { return nil, nil }
+func (m *mockStore) UpdateAgenticMapRunStatus(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) CreateAgenticMapItem(_ context.Context, _ *lcm.AgenticMapItem) error { return nil }
+func (m *mockStore) UpdateAgenticMapItem(_ context.Context, _ *lcm.AgenticMapItem) error { return nil }
+func (m *mockStore) GetAgenticMapItemsByStatus(_ context.Context, _, _ string) ([]lcm.AgenticMapItem, error) { return nil, nil }
+func (m *mockStore) CreateLlmMapRun(_ context.Context, _ *lcm.LlmMapRun) error { return nil }
+func (m *mockStore) GetLlmMapRun(_ context.Context, _ string) (*lcm.LlmMapRun, error) { return nil, nil }
+func (m *mockStore) UpdateLlmMapRunStatus(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) CreateLlmMapItem(_ context.Context, _ *lcm.LlmMapItem) error { return nil }
+func (m *mockStore) UpdateLlmMapItem(_ context.Context, _ *lcm.LlmMapItem) error { return nil }
+func (m *mockStore) GetLlmMapItemsByStatus(_ context.Context, _, _ string) ([]lcm.LlmMapItem, error) { return nil, nil }
+```
 
 ---
 
@@ -999,10 +1048,10 @@ func FormatLargeFileForContext(f *LargeFile) string {
 
 **File:** `crush/internal/lcm/lcm_test.go`
 
-Extend `mockStore` with all new Store interface methods:
-- `GetMessagesToSummarizeByTokenBudget`
-- `GetLargeFileExploration` / `SetLargeFileExploration`
-- All 12 map CRUD methods
+Mock stubs were already added incrementally in Phases 3.2, 5.2, and 6.3 **(E24)** to keep the code compilable between phases. In this phase, upgrade those stubs with meaningful test behavior:
+- `GetMessagesToSummarizeByTokenBudget` — return configurable entries based on mock data
+- `GetLargeFileExploration` / `SetLargeFileExploration` — support cache hit/miss scenarios
+- All 12 map CRUD methods — support lifecycle testing (create → process → complete)
 - Update `GetMessagesByIDs` to return messages with pre-computed `TokenCount`
 
 ### 8.3 Update export_test.go
@@ -1023,6 +1072,10 @@ Add any new unexported functions that tests need access to.
 6. **Phase 6** (Map/Reduce) — agentic and LLM map managers
 7. **Phase 7** (Integration) — constructor, coordinator methods, format fix
 8. **Phase 8** (Tests) — comprehensive coverage for everything above
+
+**Compilation note (E24):** Each phase that extends the Store interface (3.2, 5.2, 6.3) also adds minimal mock stubs to `lcm_test.go`. This ensures `go build ./...` passes after each phase. Phase 8 then upgrades those stubs with meaningful test behavior.
+
+**Parallelism note:** Phases 3 and 4 are mutually independent (different functions in shared files). Phases 5 and 6 are also mutually independent. Either pair could be swapped or implemented in parallel.
 
 ## Files Modified (existing)
 
