@@ -642,3 +642,23 @@ The `aggregateFileIDs` function in Crush (used during condensation) returns file
 1. **Volt `types.ts` does not exist**: The Source Files Examined table correctly references `summary.ts` (not `types.ts`), which is the actual file containing Summary type definitions.
 2. **`BinaryContent.Data` type difference**: Crush's `BinaryContent.Data` is `[]byte` (content.go:84), while `ToolResult.Data` is `string` (content.go:111). These are different types for different purposes. Not a bug but worth noting for anyone extending `partData`.
 3. **Volt's `ToolPart` vs Crush's `ToolCall`/`ToolResult` model**: Volt uses a single `ToolPart` with a discriminated `state` union (pending/running/completed/error), while Crush separates into `ToolCall` + `ToolResult` as independent content parts. This is an intentional design difference, not a bug, and is correctly noted in FC-9 and FC-12.
+
+### Second-Pass Verification
+
+**Verified by**: Claude Opus 4.6
+**Date**: 2026-02-18
+**Method**: Full re-read of all 13 source files (Volt and Crush) cross-referenced against every finding, line number, code snippet, severity rating, and comparative claim in this document.
+
+**Result**: All 22 findings (FC-1 through FC-22) verified as accurate. No errors, omissions, or contradictions found. Specifically confirmed:
+
+- All line number references point to the correct code in the current source files.
+- All code snippets are exact matches to the source.
+- All severity ratings are justified by the documented impact analysis.
+- All Volt vs Crush comparisons are factually correct (both sides verified).
+- The summary table matches the detailed findings in every column (ID, severity, category, summary).
+- The Recommendations Summary priorities are consistent with the severity ratings.
+- The Architecture Notes accurately describe both systems' deserialization paths and header handling.
+- The first-pass Review Notes (Changes Made table and Findings Verified table) are all correct.
+- No findings contradict each other.
+
+No changes were required during this second-pass verification.

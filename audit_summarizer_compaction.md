@@ -924,3 +924,17 @@ The following findings were verified as accurate with correct file paths, line n
 All other findings, including the first-pass corrections (SC-1 addition, SC-4 expansion, SC-6 dead-code clarification, SC-7 line fix, SC-11 line fix, SC-20 severity downgrade, SC-22 code fix, summary table updates, risk summary reorganization, and all four new findings SC-24 through SC-27), were verified as accurate.
 
 No contradictions were found between findings. The summary table matches the detailed findings after corrections. Constants and formula values are exact matches to source code.
+
+---
+
+### Third-Pass Verification
+
+**Third-pass review performed:** 2026-02-18
+**Methodology:** Independent re-read of every finding (SC-1 through SC-27), all Additional Observations, the Summary Table, the Risk Summary, and the prior Review Notes. Every file path, line number, code snippet, severity rating, and comparative claim was cross-referenced against the actual source files in `/tmp/volt/` and `/tmp/crush/`.
+
+**Overall assessment:** The document is accurate. All line numbers point to the correct code. All code snippets are exact matches to the source files (with one minor exception noted below). All severity ratings are justified. All Volt-vs-Crush comparisons are factually correct. No findings contradict each other. The Summary Table matches the detailed findings. The first-pass and second-pass Review Notes are accurate.
+
+**Minor observation (not a correction):**
+- **SC-16 Volt snippet**: The quoted Volt code omits a `log.debug(...)` line between the `if` check and `return null` (context.ts line 728). The omission does not affect the analysis — the behavioral comparison is correct — but the snippet is a simplification rather than an exact quote. No change made since the finding's accuracy is unaffected.
+
+**Verification confirmed:** All 27 findings, the summary table, the risk summary, the additional observations, and the prior review notes are accurate as of 2026-02-18.

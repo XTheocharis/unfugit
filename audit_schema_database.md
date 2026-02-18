@@ -940,10 +940,10 @@ The following findings were verified against actual source code and confirmed ac
 
 All 32 findings were independently cross-referenced against the actual source files. Every line number, code snippet, severity rating, and comparative claim was checked against:
 - `/tmp/volt/packages/voltcode/src/session/lcm/db.ts` (2028 lines)
-- `/tmp/crush/internal/db/migrations/20260218000000_create_lcm_tables.sql` (111 lines)
-- `/tmp/crush/internal/db/sql/lcm.sql` (105 lines)
-- `/tmp/crush/internal/db/lcm.sql.go` (475 lines)
-- `/tmp/crush/internal/db/models.go` (96 lines)
+- `/tmp/crush/internal/db/migrations/20260218000000_create_lcm_tables.sql` (110 lines)
+- `/tmp/crush/internal/db/sql/lcm.sql` (104 lines)
+- `/tmp/crush/internal/db/lcm.sql.go` (474 lines)
+- `/tmp/crush/internal/db/models.go` (95 lines)
 - `/tmp/crush/internal/lcm/store.go` (339 lines)
 - `/tmp/crush/internal/lcm/context.go` (58 lines)
 - `/tmp/crush/internal/lcm/retrieval.go` (74 lines)
@@ -997,3 +997,45 @@ All line numbers, code snippets, severity ratings, and comparative claims for th
 #### No Other Issues Found
 
 The summary table matches the detailed findings (after DB-32 correction). No contradictions exist between findings. No findings were missed by either the original audit or the first review pass (beyond the DB-32 error documented above).
+
+---
+
+### Third-Pass Verification
+
+**Reviewer**: Claude Opus 4.6
+**Verification date**: 2026-02-18
+
+#### Methodology
+
+Independent re-verification of all 32 findings. Every file was re-read in full and every line number, code snippet, severity rating, comparative claim, comparison matrix entry, and Review Notes statement was cross-referenced against the actual source files.
+
+#### Corrections Made
+
+- **Second-Pass file line counts corrected**: The Second-Pass Verification section listed slightly inflated line counts for 4 files (counting trailing empty lines). Corrected to standard `wc -l` convention:
+  - `20260218000000_create_lcm_tables.sql`: 111 -> 110
+  - `lcm.sql`: 105 -> 104
+  - `lcm.sql.go`: 475 -> 474
+  - `models.go`: 96 -> 95
+
+#### Full Verification Results
+
+All 32 findings (DB-1 through DB-32) were independently verified against actual source files. Results:
+
+- **All line number references**: Confirmed accurate. Every cited line number points to the correct code in the referenced file.
+- **All code snippets**: Confirmed exact matches to source files.
+- **All severity ratings**: Confirmed justified by actual impact.
+- **All Volt vs Crush comparisons**: Confirmed factually accurate against both codebases.
+- **Summary table**: All IDs, severities, categories, titles, and statuses match their detailed findings.
+- **Tables Comparison Matrix**: All 12 rows verified accurate.
+- **Indexes Comparison Matrix**: All 14 rows verified accurate.
+- **FK ON DELETE Behavior Comparison**: All 9 rows verified accurate against actual schema definitions.
+- **CHECK Constraints Comparison**: All 5 rows verified accurate.
+- **Goose Migration Format Verification**: All 10 checks verified accurate, including migration timestamp ordering (20260218000000 follows 20260127000000 as the latest prior migration).
+- **Review Notes (first pass)**: All severity adjustments, analysis corrections, new findings, and "Verified As Correct" claims confirmed accurate.
+- **Review Notes (second pass)**: DB-32 withdrawal rationale confirmed correct. DB-31 description correction confirmed. All "Verified As Correct" claims re-confirmed.
+- **No contradictions** found between any findings.
+- **No omissions** identified -- all schema/database differences between Volt and Crush are covered.
+
+#### No New Issues Found
+
+The audit document is accurate and complete. No additional corrections are needed beyond the line count metadata fix noted above.

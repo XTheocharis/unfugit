@@ -26,7 +26,7 @@
 | IT-16 | **HIGH** | Compaction | Crush's compaction target is `softThreshold * 75 / 100` (target to compact TO); Volt compacts until `overSoft` is false (i.e., `currentTokens <= softThreshold`) -- Crush over-compacts |
 | IT-17 | **MEDIUM** | Compaction | Crush `CompactContext` progress check ignores errors from `GetContextTokenCount` (assigned to `_`); a DB error would cause false "no progress" and premature abort |
 | IT-18 | **HIGH** | Test Coverage | No SQLite integration tests -- all tests use mock interfaces; Store, replace, and FTS5 query correctness are never verified against a real database |
-| IT-19 | **HIGH** | Test Parity | Volt tests `extractFileIds` with 8 scenarios (patterns, dedup, sorting, malformed IDs, empty input, plural block); Crush has zero `extractFileIDs` tests |
+| IT-19 | **HIGH** | Test Parity | Volt tests `extractFileIds` with 10 scenarios (4 pattern variants, combined patterns, dedup, sorting, no-match, empty input, malformed IDs) plus 3 structured-block tests; Crush has zero `extractFileIDs` tests |
 | IT-20 | **HIGH** | Test Parity | Volt tests `isOverThreshold` math, `MAX_COMPACTION_ROUNDS`, and condenseFallback convergence; Crush does not test compaction loop, convergence guarantees, or compaction round limits |
 | IT-21 | **MEDIUM** | Test Parity | Volt tests summarize/condense fallback produces output bounded at ~512 tokens regardless of input; Crush test `TestFallbackUsesRuneTruncation` only checks for rune-splitting, not bounded output size |
 | IT-22 | **LOW** | Dead Code | `EventBus` interface defined in `types.go` line 117-119 but never implemented or used outside `CompactionManager`; `CompactionManager` accepts it but only calls `Publish` optionally |
@@ -267,6 +267,36 @@ Volt orders results by recency (newest first).
 
 ---
 
+### IT-13: Large File Threshold Token Check Diverges Due to Estimation [MEDIUM]
+
+**Crush** (`/tmp/crush/internal/lcm/largefile.go`, lines 27-31):
+```go
+if fileSize <= DefaultByteThreshold {
+    estimatedTokens := EstimateTokenCountFromBytes(fileSize)
+    if estimatedTokens <= DefaultTokenThreshold {
+        return nil, false, nil
+    }
+}
+```
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/large-file-threshold.ts`, lines 68-80):
+```typescript
+export function isLargeFile(content: string, options?: ThresholdOptions): boolean {
+    // ...
+    if (content.length > byteThreshold) { return true }
+    const estimatedTokens = estimateTokenCount(content)
+    return estimatedTokens > tokenThreshold
+}
+```
+
+The threshold logic uses equivalent boolean semantics (OR of byte and token checks), but the token estimation inputs differ:
+- Crush uses `EstimateTokenCountFromBytes(fileSize)` (byte length / 4, integer truncation)
+- Volt uses `estimateTokenCount(content)` (UTF-16 code unit count / 4, rounded up via `Math.ceil`)
+
+This divergence propagates the issues described in IT-1, IT-2, and IT-3 into the large file detection path.
+
+---
+
 ### IT-14: Large File Context Marker Format Mismatch [MEDIUM]
 
 **Crush** (`/tmp/crush/internal/lcm/format.go`, lines 96-99):
@@ -344,11 +374,8 @@ All tests in Crush use mock interfaces (`mockLLMClient`). There are no tests tha
 ### IT-19: extractFileIDs Has Zero Test Coverage [HIGH]
 
 **Volt** tests (`/tmp/volt/packages/voltcode/test/session/lcm/compaction-redesign.test.ts`, lines 11-101):
-- 8 test cases covering all 4 regex patterns
-- Deduplication
-- Sorting
-- Empty input
-- Malformed IDs
+- 10 test cases: 4 individual pattern variants, combined multi-pattern extraction, deduplication, sorting, no-match text, empty string, and malformed IDs
+- Additional 3 structured-block tests at lines 241-279 (singular `LCM File ID:` pattern, plural `[LCM File IDs: ...]` non-match, mixed content)
 
 **Crush**: The `extractFileIDs` function in `/tmp/crush/internal/lcm/format.go` (lines 117-130) has no dedicated tests. The `TestFallbackFileIDsExtractable` test indirectly verifies that file IDs appear in fallback output, but does not test the extraction function itself with edge cases.
 
@@ -356,11 +383,11 @@ All tests in Crush use mock interfaces (`mockLLMClient`). There are no tests tha
 
 ### IT-20: No Compaction Loop or Convergence Tests [HIGH]
 
-**Volt** tests (`/tmp/volt/packages/voltcode/test/session/lcm/compaction-redesign.test.ts`, lines 104-186):
-- `summarizeFallback convergence`: Verifies fallback truncation produces fewer tokens
-- `condenseFallback convergence`: Verifies condensation of N summaries converges
-- `isOverThreshold math`: Verifies threshold arithmetic
-- `MAX_COMPACTION_ROUNDS is 10`: Verifies constant
+**Volt** tests (`/tmp/volt/packages/voltcode/test/session/lcm/compaction-redesign.test.ts`, lines 104-235):
+- `summarizeFallback convergence` (lines 108-139): Verifies fallback truncation produces fewer tokens
+- `condenseFallback convergence` (lines 145-186): Verifies condensation of N summaries converges
+- `isOverThreshold math` (lines 192-227): Verifies threshold arithmetic
+- `MAX_COMPACTION_ROUNDS is 10` (lines 233-235): Verifies constant
 
 **Crush** has no equivalent tests for:
 - `Compactor.CompactContext` loop behavior
@@ -425,7 +452,7 @@ go func() {
 
 Errors from compaction are logged but never surfaced to the caller. `AfterMessageAppended` returns `nil` immediately after scheduling compaction.
 
-**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, line 749):
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, line 750):
 ```typescript
 log.warn("async compaction failed", { conversationId: input.conversationId, error })
 ```
@@ -446,6 +473,22 @@ const softRaw = (input.softThresholdOverride ?? Math.floor(input.contextWindow *
 ```
 
 Both produce the same result for typical context window sizes (up to ~3.5 billion). However, Crush's integer multiplication `contextWindow * 60` could overflow `int` on 32-bit systems. In Go, `int` is platform-dependent (32 or 64 bit). On a 64-bit system this is not an issue, but the code is less safe than Volt's floating-point approach.
+
+---
+
+### IT-25: Reserve Calculation Difference [LOW]
+
+**Crush** (`/tmp/crush/internal/lcm/config.go`, line 87):
+```go
+reserve := min(20_000, contextWindow/4)
+```
+
+**Volt** (`/tmp/volt/packages/voltcode/src/session/lcm/context.ts`, line 195):
+```typescript
+const hardLimit = input.contextWindow - input.overhead - input.reserve
+```
+
+Volt does not compute `reserve` internally in `isOverThreshold` -- it receives `reserve` as a parameter from the caller. The caller computes it externally. Crush computes it inline using `min(20_000, contextWindow/4)`. The actual reserve value may differ depending on what Volt's caller passes.
 
 ---
 
@@ -486,6 +529,21 @@ Volt caps at 100MB regardless of the requested maxBytes.
 
 ---
 
+### IT-28: ReadFull May Fail on Concurrently Truncated Files [LOW]
+
+**Crush** (`/tmp/crush/internal/lcm/largefile.go`, lines 61-65):
+```go
+buffer := make([]byte, bytesToRead)
+n, err := io.ReadFull(file, buffer)
+if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+    return nil, fmt.Errorf("failed to read file: %w", err)
+}
+```
+
+`io.ReadFull` requires exactly `len(buffer)` bytes. If the file is concurrently truncated between `Stat()` (line 49) and `ReadFull` (line 62), the actual file size may be smaller than `bytesToRead`, causing `io.ErrUnexpectedEOF`. This error is explicitly handled (the `if` condition allows it), and the returned content uses `buffer[:n]` (line 68), so the result is correct but may be shorter than expected. This is a narrow race condition with minimal practical impact.
+
+---
+
 ### IT-29: No Integration Layer Tests [HIGH]
 
 The functions in `/tmp/crush/internal/lcm/integration.go` -- `AfterMessageAppended`, `GetContext`, `Expand`, and `Search` -- have zero test coverage. These are the primary API surface that the agent loop calls.
@@ -519,6 +577,18 @@ What is untested:
 5. Correct position renumbering after rebuild
 
 **Correction**: The original audit stated "neither has dedicated tests." This is incorrect for Volt. Volt's `context.test.ts` (lines 347-391) tests `replacePositionsWithSummary` via `replaceContextWithSummary` against a real PostgreSQL database, including non-contiguous position scenarios and multi-round summarization/condensation cycles (lines 433-564) that exercise `replacePositionsWithSummary` at line 537. Only Crush lacks tests for this critical operation.
+
+---
+
+### IT-32: No Tests for GenerateFileIDFromPath or CheckAndStoreLargeFile [LOW]
+
+**File**: `/tmp/crush/internal/lcm/largefile.go`
+
+`GenerateFileIDFromPath` (line 75) and `CheckAndStoreLargeFile` (line 14) have no dedicated tests. Untested properties:
+1. **Determinism**: Same inputs produce same file ID
+2. **Uniqueness**: Different inputs (different mtime, different size) produce different file IDs
+3. **Threshold boundary**: `CheckAndStoreLargeFile` correctly classifies files at exact boundary values (fileSize = DefaultByteThreshold, tokens = DefaultTokenThreshold)
+4. **Error handling**: File stat failures, store insertion failures
 
 ---
 
@@ -712,7 +782,7 @@ Pattern 3 does NOT require brackets: `LCM File ID: file_xxx`.
 
 ### What Crush Does NOT Test (But Volt Does)
 
-1. **extractFileIds** -- pattern matching, dedup, sorting, malformed IDs, empty input (Volt: 8 tests)
+1. **extractFileIds** -- pattern matching, dedup, sorting, malformed IDs, empty input (Volt: 10 tests in main describe + 3 structured-block tests)
 2. **Fallback convergence** -- output bounded at ~512 tokens, output < input (Volt: 4 tests)
 3. **Condense fallback convergence** -- N summaries combined and truncated (Volt: 2 tests)
 4. **isOverThreshold arithmetic** -- hardLimit, softThreshold, clamping (Volt: 3 tests)
@@ -721,9 +791,7 @@ Pattern 3 does NOT require brackets: `LCM File ID: file_xxx`.
 
 ### What Neither System Tests
 
-1. **Concurrent compaction** scheduling and dedup
-2. **Large file content retrieval** with truncation
-3. **Context formatting overhead** accuracy
+1. **Context formatting overhead** accuracy (`getSummaryFormattingOverhead` token count arithmetic)
 
 ### What Only Volt Tests (Crush Lacks)
 
@@ -731,6 +799,8 @@ Pattern 3 does NOT require brackets: `LCM File ID: file_xxx`.
 2. **ReplacePositionsWithSummary** transaction correctness (Volt tests this at `context.test.ts:347-391` and `context.test.ts:537`)
 3. **FTS search** with real database (Volt tests `searchMessages` at `context.test.ts:393-421`)
 4. **Multi-round summarization and condensation** cycles (Volt tests at `context.test.ts:433-564` with 30-message and 100-message scenarios)
+5. **Concurrent compaction scheduling and dedup** (Volt tests in `async-compaction.test.ts:65-122` -- verifies second `scheduleCompaction` returns null for same conversation)
+6. **Large file content retrieval** with truncation (Volt tests `getLargeFileContent` with `maxBytes` parameter at `large-user-text.test.ts:99-118`)
 
 ---
 
@@ -798,8 +868,8 @@ The following findings were verified as factually correct with accurate line num
 - **IT-16**: Verified. Target = softThreshold * 75/100 at compactor.go:33. Volt checks overSoft at context.ts:486-508.
 - **IT-17**: Verified. Error discarded at compactor.go:61.
 - **IT-18**: Verified. All Crush tests use mock interfaces, no real SQLite.
-- **IT-19**: Verified. 8 Volt tests at compaction-redesign.test.ts:11-101. Zero Crush extractFileIDs tests.
-- **IT-20**: Verified. Volt tests at compaction-redesign.test.ts:104-235. No Crush equivalents.
+- **IT-19**: Verified. 10 Volt test cases at compaction-redesign.test.ts:11-101, plus 3 structured-block tests at lines 241-279. Zero Crush extractFileIDs tests.
+- **IT-20**: Verified. Volt tests at compaction-redesign.test.ts:104-235 (summarizeFallback convergence, condenseFallback convergence, isOverThreshold math, MAX_COMPACTION_ROUNDS). No Crush equivalents.
 - **IT-21**: Verified. TestFallbackUsesRuneTruncation at lcm_test.go:142-165 only checks rune splitting.
 - **IT-22**: Verified. EventBus at types.go:116-119. CompactionManager nil check at manager.go:60.
 - **IT-23**: Verified. Error swallowed in goroutine at integration.go:40-46.
@@ -852,3 +922,28 @@ The following findings were verified as factually correct with accurate line num
 - #14: Align summary ID generation (IT-38, IT-39)
 - #15: Sort extractFileIDs output (IT-37)
 - #16: Align regex pattern 3 bracket convention (IT-41)
+
+### Second-Pass Verification (2026-02-18)
+
+All 41 findings were re-verified against the actual source files. Every line number, code snippet, and behavioral claim was cross-referenced with the files in `/tmp/volt/packages/voltcode/src/session/lcm/` and `/tmp/crush/internal/lcm/`. The following corrections were applied:
+
+**Corrections made in second pass:**
+
+1. **IT-19 (summary table and detail)**: Changed "8 test cases" to "10 test cases" plus 3 structured-block tests. The `describe("extractFileIds")` block at `compaction-redesign.test.ts:11-101` contains 10 individual tests (4 pattern variants, combined patterns, dedup, sorting, no-match text, empty string, malformed IDs), not 8. Additionally, lines 241-279 contain 3 more `extractFileIds` tests in a "file ID extraction from structured blocks" describe.
+
+2. **IT-20 (detail)**: Changed line range from "104-186" to "104-235". Lines 104-186 only cover `summarizeFallback convergence` and `condenseFallback convergence`. The `isOverThreshold math` tests are at lines 192-227 and `MAX_COMPACTION_ROUNDS is 10` is at lines 233-235.
+
+3. **IT-23 (detail)**: Changed Volt line reference from "line 749" to "line 750". Line 749 is the `catch (error) {` statement; the `log.warn(...)` call is at line 750.
+
+4. **"What Crush Does NOT Test" section**: Updated item 1 count from "Volt: 8 tests" to "Volt: 10 tests in main describe + 3 structured-block tests".
+
+5. **"What Neither System Tests" section**: Removed two items that Volt actually DOES test:
+   - "Concurrent compaction scheduling and dedup" -- Volt tests this at `async-compaction.test.ts:65-122` (verifies `scheduleCompaction` dedup by checking second call returns null).
+   - "Large file content retrieval with truncation" -- Volt tests `getLargeFileContent` with `maxBytes` parameter at `large-user-text.test.ts:99-118`.
+   Both moved to the "What Only Volt Tests (Crush Lacks)" section as items 5 and 6.
+
+6. **Missing detail sections**: Added detailed finding sections for IT-13 (Large File Threshold Token Check), IT-25 (Reserve Calculation Difference), IT-28 (ReadFull concurrent truncation), and IT-32 (No tests for GenerateFileIDFromPath/CheckAndStoreLargeFile). These were present in the summary table but lacked corresponding detail sections, creating an inconsistency.
+
+**Verified as accurate (no changes needed):**
+
+All other findings (IT-1 through IT-12, IT-14 through IT-18, IT-21 through IT-24, IT-26 through IT-27, IT-29 through IT-31, IT-33 through IT-41), the summary table entries, severity ratings, Volt/Crush code comparisons, and Recommendations section were verified as accurate against the source files. Line numbers, code snippets, and behavioral claims are correct.

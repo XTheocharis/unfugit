@@ -555,3 +555,14 @@ Independent second-pass review completed. All 22 findings, the summary table, th
 **Confirmed accurate (no changes needed):**
 
 All remaining findings (SQ-1 through SQ-7, SQ-9 through SQ-14, SQ-16 through SQ-21), the summary table, and the first-pass review notes were independently verified against source files. File paths, line numbers, code quotes, SQL queries, type mappings, severity ratings, and Volt-vs-Crush comparative claims are all accurate. No contradictions were found between findings. The summary table correctly reflects all detailed findings.
+
+### Third-Pass Verification (2026-02-18)
+
+Independent third-pass review completed. All 22 findings (SQ-1 through SQ-22), the summary table, the cross-cutting observations, the first-pass review notes, and the second-pass review notes were re-verified against the actual source files in both codebases.
+
+**Verification scope**: Every line number reference, code snippet, SQL query, severity rating, and comparative claim was cross-referenced against the following source files:
+- Volt: `/tmp/volt/packages/voltcode/src/session/lcm/db.ts` (2028 lines), `/tmp/volt/packages/voltcode/src/session/lcm/large-file-threshold.ts`
+- Crush: `/tmp/crush/internal/lcm/store.go`, `retrieval.go`, `types.go`, `manager.go`, `context.go`, `integration.go`, `compactor.go`, `config.go`, `replace.go`, `largefile.go`, `format.go`, `summarizer.go`, `lcm_test.go`
+- Crush SQL/generated: `/tmp/crush/internal/db/sql/lcm.sql`, `/tmp/crush/internal/db/migrations/20260218000000_create_lcm_tables.sql`, `/tmp/crush/internal/db/lcm.sql.go`, `/tmp/crush/internal/db/querier.go`
+
+**Result**: No errors, omissions, inconsistencies, or logical/technical conflicts found. All file paths, line numbers, code quotes, severity ratings, and Volt-vs-Crush comparative claims are accurate. The summary table correctly reflects the detailed findings. The first-pass and second-pass review notes are accurate. No corrections needed in this pass.
