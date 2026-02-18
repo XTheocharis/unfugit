@@ -149,7 +149,7 @@ func (TypeScriptExplorer) CanExplore(path string, mimeType string) bool {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".ts" || ext == ".tsx"
+	return ext == ".ts" || ext == ".tsx" || ext == ".mts" || ext == ".cts"
 }
 
 func (TypeScriptExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -171,7 +171,7 @@ func (JavaScriptExplorer) CanExplore(path string, mimeType string) bool {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".js" || ext == ".jsx"
+	return ext == ".js" || ext == ".jsx" || ext == ".mjs" || ext == ".cjs"
 }
 
 func (JavaScriptExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -234,7 +234,7 @@ func (CppExplorer) CanExplore(path string, mimeType string) bool {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".cpp" || ext == ".cc" || ext == ".hpp" || ext == ".cxx"
+	return ext == ".cpp" || ext == ".cc" || ext == ".hpp" || ext == ".cxx" || ext == ".hxx" || ext == ".hh" || ext == ".ipp"
 }
 
 func (CppExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -254,7 +254,8 @@ type CSharpExplorer struct{}
 func (CSharpExplorer) Name() string { return "csharp" }
 
 func (CSharpExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/x-csharp" || filepath.Ext(path) == ".cs"
+	ext := filepath.Ext(path)
+	return mimeType == "text/x-csharp" || ext == ".cs" || ext == ".csx"
 }
 
 func (CSharpExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -273,7 +274,8 @@ type RubyExplorer struct{}
 func (RubyExplorer) Name() string { return "ruby" }
 
 func (RubyExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/x-ruby" || filepath.Ext(path) == ".rb"
+	ext := filepath.Ext(path)
+	return mimeType == "text/x-ruby" || ext == ".rb" || ext == ".rake" || ext == ".gemspec"
 }
 
 func (RubyExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -331,7 +333,8 @@ type CUDAExplorer struct{}
 func (CUDAExplorer) Name() string { return "cuda" }
 
 func (CUDAExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/x-cuda" || filepath.Ext(path) == ".cu"
+	ext := filepath.Ext(path)
+	return mimeType == "text/x-cuda" || ext == ".cu" || ext == ".cuh"
 }
 
 func (CUDAExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -349,7 +352,8 @@ type TclExplorer struct{}
 func (TclExplorer) Name() string { return "tcl" }
 
 func (TclExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/x-tcl" || filepath.Ext(path) == ".tcl"
+	ext := filepath.Ext(path)
+	return mimeType == "text/x-tcl" || ext == ".tcl" || ext == ".tk"
 }
 
 func (TclExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {

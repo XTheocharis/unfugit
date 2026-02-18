@@ -29,8 +29,9 @@ func (c *Compactor) CompactContext(
 			return round, fmt.Errorf("failed to get context token count: %w", err)
 		}
 
-		// Target must be below softThreshold to ensure compaction makes progress.
-		target := budget.SoftThreshold * (100 - TargetFreePercent) / 100
+		// Volt's compactUntilUnderLimit targets hardLimit as the stop condition.
+		// Compaction succeeds when currentTokens <= hardLimit.
+		target := budget.HardLimit
 
 		if currentTokens <= target {
 			log.Printf("Compaction complete after %d rounds: %d tokens (target: %d)",

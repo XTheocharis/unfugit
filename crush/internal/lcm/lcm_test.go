@@ -91,15 +91,17 @@ func TestComputeTokenBudgetSmall(t *testing.T) {
 	}
 }
 
-func TestCompactionTargetBelowSoftThreshold(t *testing.T) {
-	// B1: Volt's TARGET_FREE_PERCENTAGE=0.25 is dead code (never referenced).
-	// Actual Volt behavior: compaction stops at 100% of softThreshold.
-	// With TargetFreePercent=0, target == softThreshold.
+func TestCompactionTargetIsHardLimit(t *testing.T) {
+	// Volt's compactUntilUnderLimit targets hardLimit as the stop condition.
+	// The compactor stops when currentTokens <= hardLimit.
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
-	target := budget.SoftThreshold * (100 - lcm.TargetFreePercent) / 100
-	if target != budget.SoftThreshold {
-		t.Errorf("target (%d) != softThreshold (%d): with TargetFreePercent=0 they should match",
-			target, budget.SoftThreshold)
+	if budget.HardLimit != 105_000 {
+		t.Errorf("HardLimit = %d, want 105000", budget.HardLimit)
+	}
+	// Verify softThreshold < hardLimit (soft is for triggering, hard is for stopping)
+	if budget.SoftThreshold >= budget.HardLimit {
+		t.Errorf("softThreshold (%d) should be less than hardLimit (%d)",
+			budget.SoftThreshold, budget.HardLimit)
 	}
 }
 
@@ -685,9 +687,9 @@ func TestCheckAndStoreLargeFile_SmallFile(t *testing.T) {
 // ============================================================================
 
 func TestCompactContext_Convergence(t *testing.T) {
-	// budget target = softThreshold * 75 / 100 = 73800 * 75 / 100 = 55350
-	// Start above target, decrease each round until below target.
-	store := newMockStoreForCompaction([]int{80000, 60000, 40000, 20000})
+	// hardLimit = 128000 - 3000 - 20000 = 105000
+	// Start above hardLimit, decrease each round until below.
+	store := newMockStoreForCompaction([]int{120000, 100000, 80000})
 	summarizer := &mockSummarizer{tokenReduction: 20000}
 	compactor := lcm.NewCompactor(store, summarizer)
 
@@ -703,8 +705,8 @@ func TestCompactContext_Convergence(t *testing.T) {
 
 func TestCompactContext_NoProgress(t *testing.T) {
 	// Token count never decreases — should error.
-	// Start above target (55350) and stay there.
-	store := newMockStoreForCompaction([]int{80000, 80000, 80000})
+	// Start above hardLimit (105000) and stay there.
+	store := newMockStoreForCompaction([]int{120000, 120000, 120000})
 	summarizer := &mockSummarizer{tokenReduction: 0}
 	compactor := lcm.NewCompactor(store, summarizer)
 
@@ -726,7 +728,7 @@ func TestScheduleCompaction_DuplicateRejected(t *testing.T) {
 	bus := lcm.NoOpEventBus{}
 	manager := lcm.NewCompactionManager(bus)
 
-	store := newMockStoreForCompaction([]int{80000, 40000}) // converges in 1 round
+	store := newMockStoreForCompaction([]int{120000, 80000}) // converges in 1 round (below hardLimit 105000)
 	summarizer := &mockSummarizer{tokenReduction: 40000}
 	compactor := lcm.NewCompactor(store, summarizer)
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
@@ -752,7 +754,7 @@ func TestScheduleCompaction_EventBusPublishes(t *testing.T) {
 	bus := lcm.NewChannelEventBus(10)
 	manager := lcm.NewCompactionManager(bus)
 
-	store := newMockStoreForCompaction([]int{80000, 40000})
+	store := newMockStoreForCompaction([]int{120000, 80000})
 	summarizer := &mockSummarizer{tokenReduction: 40000}
 	compactor := lcm.NewCompactor(store, summarizer)
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
@@ -877,7 +879,7 @@ func TestChannelEventBus_DropOnFull(t *testing.T) {
 
 func TestCompactContext_ReplacesPositions(t *testing.T) {
 	// Verify that compaction calls ReplacePositionsWithSummary
-	store := newMockStoreForCompaction([]int{80000, 40000})
+	store := newMockStoreForCompaction([]int{120000, 80000})
 	summarizer := &mockSummarizer{tokenReduction: 40000}
 	compactor := lcm.NewCompactor(store, summarizer)
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
@@ -1516,4 +1518,181 @@ func (ms *mockSummarizer) CondenseSummaries(_ context.Context, summaries []lcm.S
 		Content:    "condensed",
 		TokenCount: reduced,
 	}, nil
+}
+
+// ============================================================================
+// Audit round 2: Missing test coverage
+// ============================================================================
+
+func TestImageExplorer_SVGExclusion(t *testing.T) {
+	// B4: SVG is XML text, not a binary image — ImageExplorer must reject it.
+	registry := lcm.NewExplorerRegistry()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "icon.svg")
+	os.WriteFile(path, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>`), 0o644)
+
+	// Via MIME type
+	result, err := registry.Explore(context.Background(), path, "image/svg+xml", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed == "image" {
+		t.Error("SVG should NOT be handled by ImageExplorer")
+	}
+	// SVG with .svg extension should route to XMLExplorer
+	if result.ExplorerUsed != "xml" {
+		t.Errorf("SVG should route to xml explorer, got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestThreeTierCascade_ExtensionBeforeMIME(t *testing.T) {
+	// M8: Extension-based matching (tier 1) takes priority over MIME-based (tier 2).
+	// A .go file with a generic text/plain MIME should use the Go explorer, not text.
+	registry := lcm.NewExplorerRegistry()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	os.WriteFile(path, []byte("package main\n\nfunc main() {}\n"), 0o644)
+
+	result, err := registry.Explore(context.Background(), path, "text/plain", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "go" {
+		t.Errorf("tier 1 (extension) should match .go before tier 2 (text/plain), got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestThreeTierCascade_MIMEWhenNoExtension(t *testing.T) {
+	// M8: When no extension matches, MIME-based matching (tier 2) is used.
+	registry := lcm.NewExplorerRegistry()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "noext") // no extension
+	os.WriteFile(path, []byte(`{"key": "value"}`), 0o644)
+
+	result, err := registry.Explore(context.Background(), path, "application/json", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "json" {
+		t.Errorf("tier 2 (MIME) should match application/json for extensionless file, got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestPythonExplorer_ApplicationXPython(t *testing.T) {
+	// B5: application/x-python MIME should route to PythonExplorer.
+	registry := lcm.NewExplorerRegistry()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "noext") // no extension, MIME-only match
+	os.WriteFile(path, []byte("def main():\n    pass\n"), 0o644)
+
+	result, err := registry.Explore(context.Background(), path, "application/x-python", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "python" {
+		t.Errorf("application/x-python should route to python explorer, got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestFormatMessagesForSummary_MessageHeaderFormat(t *testing.T) {
+	// D7: Message headers use format "[Message <id>] (<role>)" with space before parens.
+	messages := []lcm.LCMMessage{
+		{ID: "msg_001", SessionID: "s1", Role: "user", Content: "plain text"},
+	}
+	result := lcm.FormatMessagesForSummary(messages)
+	expected := "[Message msg_001] (user)"
+	if !strings.Contains(result, expected) {
+		t.Errorf("expected header format %q, got:\n%s", expected, result)
+	}
+}
+
+func TestFormatMessagesForSummary_ToolResultErrorNamed(t *testing.T) {
+	// Volt format: [Tool: name] Error: message (single line)
+	messages := []lcm.LCMMessage{
+		{
+			ID:        "m1",
+			SessionID: "s1",
+			Role:      "tool",
+			Content:   `[{"type":"tool_result","data":{"tool_call_id":"tc1","name":"bash","content":"permission denied","is_error":true}}]`,
+		},
+	}
+	result := lcm.FormatMessagesForSummary(messages)
+	if !strings.Contains(result, "[Tool: bash] Error: permission denied") {
+		t.Errorf("named tool error should use Volt format '[Tool: name] Error: msg', got:\n%s", result)
+	}
+}
+
+func TestSummaryCreatedAtSet(t *testing.T) {
+	// Verify that summarizer sets CreatedAt on returned Summary structs.
+	mock := &mockLLMClient{
+		responses: []string{"short summary"},
+	}
+	summarizer := lcm.NewEscalationSummarizer(mock, "test-model", lcm.Prompts{
+		SummarizeNormal: "{{messages}}",
+	})
+	messages := []lcm.LCMMessage{
+		{ID: "m1", SessionID: "s1", CreatedAt: 1000, Role: "user", Content: "test", TokenCount: 100},
+	}
+	summary, err := summarizer.SummarizeMessages(context.Background(), messages)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if summary.CreatedAt == 0 {
+		t.Error("Summary.CreatedAt should be set to a non-zero timestamp")
+	}
+	// Should be a recent timestamp (within last 10 seconds)
+	now := time.Now().UnixMilli()
+	if summary.CreatedAt < now-10_000 || summary.CreatedAt > now+1_000 {
+		t.Errorf("Summary.CreatedAt %d is not a recent timestamp (now=%d)", summary.CreatedAt, now)
+	}
+}
+
+func TestSQLiteExplorer_ExtensionMatch(t *testing.T) {
+	// SQLiteExplorer should match by extension without file I/O.
+	registry := lcm.NewExplorerRegistry()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data.sqlite3")
+	os.WriteFile(path, []byte("not actually sqlite"), 0o644)
+
+	result, err := registry.Explore(context.Background(), path, "", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "sqlite" {
+		t.Errorf("expected sqlite explorer for .sqlite3 extension, got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestExecutableExplorer_ExtensionMatch(t *testing.T) {
+	// ExecutableExplorer should match by extension without file I/O.
+	registry := lcm.NewExplorerRegistry()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "program.exe")
+	os.WriteFile(path, []byte("not actually an exe"), 0o644)
+
+	result, err := registry.Explore(context.Background(), path, "", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "executable" {
+		t.Errorf("expected executable explorer for .exe extension, got '%s'", result.ExplorerUsed)
+	}
 }

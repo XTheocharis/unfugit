@@ -6,9 +6,9 @@ package lcm
 // of the model's total context window.
 const DefaultCtxCutoffPercent = 60
 
-// TargetFreePercent: continue compacting until this fraction of the soft threshold is free.
-// Volt declares TARGET_FREE_PERCENTAGE = 0.25 but never uses it — compaction
-// stops at 100% of softThreshold. We match Volt's actual behavior (0%).
+// TargetFreePercent is declared but unused — Volt's compactUntilUnderLimit
+// targets hardLimit directly, not a percentage of softThreshold. Kept for
+// backward compatibility of the exported symbol; the compactor ignores it.
 const TargetFreePercent = 0
 
 // MinMessagesToSummarize: minimum messages to summarize in one operation.

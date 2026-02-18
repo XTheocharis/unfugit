@@ -91,6 +91,7 @@ func (s *EscalationSummarizer) summarizeNormal(
 		Content:    content,
 		TokenCount: int64(EstimateTokenCount(content)),
 		FileIDs:    fileIDs,
+		CreatedAt:  time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -116,6 +117,7 @@ func (s *EscalationSummarizer) summarizeAggressive(
 		Content:    content,
 		TokenCount: int64(EstimateTokenCount(content)),
 		FileIDs:    fileIDs,
+		CreatedAt:  time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -145,6 +147,7 @@ func (s *EscalationSummarizer) summarizeFallback(
 		Content:    finalContent,
 		TokenCount: int64(EstimateTokenCount(finalContent)),
 		FileIDs:    fileIDs,
+		CreatedAt:  time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -203,6 +206,7 @@ func (s *EscalationSummarizer) condenseNormal(
 		Content:    content,
 		TokenCount: int64(EstimateTokenCount(content)),
 		FileIDs:    fileIDs,
+		CreatedAt:  time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -229,6 +233,7 @@ func (s *EscalationSummarizer) condenseAggressive(
 		Content:    content,
 		TokenCount: int64(EstimateTokenCount(content)),
 		FileIDs:    fileIDs,
+		CreatedAt:  time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -260,6 +265,7 @@ func (s *EscalationSummarizer) condenseFallback(
 		Content:    finalContent,
 		TokenCount: int64(EstimateTokenCount(finalContent)),
 		FileIDs:    fileIDs,
+		CreatedAt:  time.Now().UnixMilli(),
 	}, nil
 }
 
@@ -318,6 +324,16 @@ func buildPrompt(template, input string) string {
 
 func buildCondensePrompt(template string, summaries []Summary) string {
 	var builder strings.Builder
+	// Volt's condense prompt mandates parent-ID preservation (condense.txt §1).
+	// Include a header listing all parent summary IDs that MUST appear in output.
+	builder.WriteString("Parent Summary IDs to preserve (MANDATORY): ")
+	for i, summary := range summaries {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(summary.SummaryID)
+	}
+	builder.WriteString("\n\n")
 	for i, summary := range summaries {
 		fmt.Fprintf(&builder, "--- Summary %d (ID: %s) ---\n%s\n",
 			i+1, summary.SummaryID, summary.Content)

@@ -341,7 +341,7 @@ type TOMLExplorer struct{}
 func (TOMLExplorer) Name() string { return "toml" }
 
 func (TOMLExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "application/toml" || filepath.Ext(path) == ".toml"
+	return mimeType == "application/toml" || mimeType == "text/x-toml" || filepath.Ext(path) == ".toml"
 }
 
 func (TOMLExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -398,7 +398,7 @@ func (INIExplorer) CanExplore(path string, mimeType string) bool {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".ini" || ext == ".cfg"
+	return ext == ".ini" || ext == ".cfg" || ext == ".conf" || ext == ".properties"
 }
 
 func (INIExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -471,7 +471,12 @@ func (XMLExplorer) CanExplore(path string, mimeType string) bool {
 	if mimeType == "application/xml" || mimeType == "text/xml" || strings.HasSuffix(mimeType, "+xml") {
 		return true
 	}
-	return filepath.Ext(path) == ".xml"
+	ext := filepath.Ext(path)
+	switch ext {
+	case ".xml", ".xsl", ".xslt", ".xsd", ".wsdl", ".rss", ".atom", ".plist", ".svg":
+		return true
+	}
+	return false
 }
 
 func (XMLExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 )
 
@@ -55,6 +56,11 @@ func expandSummaryWithVisited(
 		}
 		allMessages = append(allMessages, msgs...)
 	}
+	// Volt's expandSummaryToMessages uses ORDER BY m.seq to maintain
+	// chronological conversation order. Sort by CreatedAt as the Go equivalent.
+	sort.Slice(allMessages, func(i, j int) bool {
+		return allMessages[i].CreatedAt < allMessages[j].CreatedAt
+	})
 	return allMessages, nil
 }
 

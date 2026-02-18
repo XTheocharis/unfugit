@@ -22,18 +22,28 @@ func (SQLiteExplorer) CanExplore(path string, mimeType string) bool {
 	if mimeType == "application/x-sqlite3" || mimeType == "application/vnd.sqlite3" {
 		return true
 	}
-	// Check magic bytes by reading the file header
-	f, err := os.Open(path)
-	if err != nil {
-		return false
+	// Extension matching (tier 1 of 3-tier cascade).
+	ext := filepath.Ext(path)
+	switch ext {
+	case ".sqlite", ".sqlite3", ".db", ".db3", ".s3db", ".sl3":
+		return true
 	}
-	defer f.Close()
-	header := make([]byte, 16)
-	n, err := f.Read(header)
-	if err != nil || n < 16 {
-		return false
+	// Magic bytes check — only when both path and mimeType are provided (tier 3).
+	// Avoids file I/O during extension-only (tier 1) or MIME-only (tier 2) dispatch.
+	if path != "" && mimeType != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		header := make([]byte, 16)
+		n, err := f.Read(header)
+		if err != nil || n < 16 {
+			return false
+		}
+		return string(header[:16]) == "SQLite format 3\x00"
 	}
-	return string(header[:16]) == "SQLite format 3\x00"
+	return false
 }
 
 func (SQLiteExplorer) Explore(_ context.Context, path string, _ string, _ int) (*ExplorationResult, error) {
@@ -169,7 +179,7 @@ func (ImageExplorer) CanExplore(path string, mimeType string) bool {
 	}
 	ext := filepath.Ext(path)
 	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp":
+	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico", ".heic", ".heif", ".avif":
 		return true
 	}
 	return false
@@ -276,8 +286,22 @@ func (ExecutableExplorer) CanExplore(path string, mimeType string) bool {
 		"application/wasm", "application/vnd.microsoft.portable-executable":
 		return true
 	}
+	// Extension matching (tier 1 of 3-tier cascade).
+	ext := filepath.Ext(path)
+	switch ext {
+	case ".exe", ".dll", ".so", ".dylib", ".wasm", ".o", ".a", ".lib":
+		return true
+	}
+	// Magic bytes check — only when both path and mimeType are provided (tier 3).
+	// Avoids file I/O during extension-only (tier 1) or MIME-only (tier 2) dispatch.
+	if path != "" && mimeType != "" {
+		return checkExecutableMagicBytes(path)
+	}
+	return false
+}
 
-	// Check magic bytes
+// checkExecutableMagicBytes reads the first 4 bytes and checks for known binary signatures.
+func checkExecutableMagicBytes(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		return false
@@ -292,17 +316,20 @@ func (ExecutableExplorer) CanExplore(path string, mimeType string) bool {
 	if n >= 4 && header[0] == 0x7F && header[1] == 'E' && header[2] == 'L' && header[3] == 'F' {
 		return true
 	}
-	// Mach-O: \xfe\xed\xfa\xce or \xfe\xed\xfa\xcf (32-bit) or \xcf\xfa\xed\xfe or \xce\xfa\xed\xfe (reverse)
-	if n >= 4 {
-		if header[0] == 0xFE && header[1] == 0xED && header[2] == 0xFA {
-			return true
-		}
-		if header[0] == 0xCF && header[1] == 0xFA && header[2] == 0xED && header[3] == 0xFE {
-			return true
-		}
-		if header[0] == 0xCE && header[1] == 0xFA && header[2] == 0xED && header[3] == 0xFE {
-			return true
-		}
+	// Mach-O: \xfe\xed\xfa\xce or \xfe\xed\xfa\xcf (big-endian)
+	if n >= 4 && header[0] == 0xFE && header[1] == 0xED && header[2] == 0xFA {
+		return true
+	}
+	// Mach-O: \xcf\xfa\xed\xfe or \xce\xfa\xed\xfe (little-endian)
+	if n >= 4 && (header[0] == 0xCF || header[0] == 0xCE) && header[1] == 0xFA && header[2] == 0xED && header[3] == 0xFE {
+		return true
+	}
+	// Mach-O FAT/Universal: \xca\xfe\xba\xbe (big-endian) or \xbe\xba\xfe\xca (little-endian)
+	if n >= 4 && header[0] == 0xCA && header[1] == 0xFE && header[2] == 0xBA && header[3] == 0xBE {
+		return true
+	}
+	if n >= 4 && header[0] == 0xBE && header[1] == 0xBA && header[2] == 0xFE && header[3] == 0xCA {
+		return true
 	}
 	// PE: MZ
 	if n >= 2 && header[0] == 'M' && header[1] == 'Z' {
@@ -337,6 +364,10 @@ func (ExecutableExplorer) Explore(_ context.Context, path string, _ string, _ in
 		binaryType = "Mach-O (macOS executable)"
 	} else if n >= 4 && (header[0] == 0xCF || header[0] == 0xCE) && header[1] == 0xFA && header[2] == 0xED && header[3] == 0xFE {
 		binaryType = "Mach-O (macOS executable, reverse byte order)"
+	} else if n >= 4 && header[0] == 0xCA && header[1] == 0xFE && header[2] == 0xBA && header[3] == 0xBE {
+		binaryType = "Mach-O FAT/Universal (multi-architecture)"
+	} else if n >= 4 && header[0] == 0xBE && header[1] == 0xBA && header[2] == 0xFE && header[3] == 0xCA {
+		binaryType = "Mach-O FAT/Universal (multi-architecture, reverse)"
 	} else if n >= 2 && header[0] == 'M' && header[1] == 'Z' {
 		binaryType = "PE (Windows executable)"
 	}
@@ -363,7 +394,11 @@ type LogExplorer struct{}
 func (LogExplorer) Name() string { return "log" }
 
 func (LogExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/x-log" || filepath.Ext(path) == ".log"
+	if mimeType == "text/x-log" {
+		return true
+	}
+	ext := filepath.Ext(path)
+	return ext == ".log" || ext == ".logs" || ext == ".out" || ext == ".err"
 }
 
 func (LogExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {

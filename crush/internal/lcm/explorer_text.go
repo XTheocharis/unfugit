@@ -21,7 +21,7 @@ func (MarkdownExplorer) CanExplore(path string, mimeType string) bool {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".md" || ext == ".markdown"
+	return ext == ".md" || ext == ".markdown" || ext == ".mdx"
 }
 
 func (MarkdownExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -141,7 +141,7 @@ func (LaTeXExplorer) CanExplore(path string, mimeType string) bool {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".tex" || ext == ".latex"
+	return ext == ".tex" || ext == ".latex" || ext == ".sty" || ext == ".cls" || ext == ".bib"
 }
 
 func (LaTeXExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -252,7 +252,8 @@ type CSSExplorer struct{}
 func (CSSExplorer) Name() string { return "css" }
 
 func (CSSExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/css" || filepath.Ext(path) == ".css"
+	ext := filepath.Ext(path)
+	return mimeType == "text/css" || ext == ".css" || ext == ".scss" || ext == ".sass" || ext == ".less"
 }
 
 func (CSSExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {

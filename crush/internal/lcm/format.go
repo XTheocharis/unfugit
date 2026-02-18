@@ -50,10 +50,11 @@ func formatPart(part MessagePart) []string {
 		}
 	case "tool_result":
 		if d.IsError {
+			// Volt format (summarize.ts:197): [Tool: name] Error: message
 			if d.Name != "" {
-				out = append(out, fmt.Sprintf("[Tool Error: %s]\n%s", d.Name, runeAwareTruncate(d.Content, 1000)))
+				out = append(out, fmt.Sprintf("[Tool: %s] Error: %s", d.Name, runeAwareTruncate(d.Content, 1000)))
 			} else {
-				out = append(out, fmt.Sprintf("[Tool Error]\n%s", runeAwareTruncate(d.Content, 1000)))
+				out = append(out, fmt.Sprintf("[Tool Error] %s", runeAwareTruncate(d.Content, 1000)))
 			}
 		} else {
 			out = append(out, fmt.Sprintf("[Tool Result]\n%s", runeAwareTruncate(d.Content, 1000)))
