@@ -16,7 +16,7 @@ import (
 func FormatMessagesForSummary(messages []LCMMessage) string {
 	var parts []string
 	for _, msg := range messages {
-		parts = append(parts, fmt.Sprintf("[Message %s (%s)]", msg.ID, msg.Role))
+		parts = append(parts, fmt.Sprintf("[Message %s] (%s)", msg.ID, msg.Role))
 
 		var msgParts []MessagePart
 		if err := json.Unmarshal([]byte(msg.Content), &msgParts); err != nil {
@@ -41,7 +41,7 @@ func formatPart(part MessagePart) []string {
 			out = append(out, d.Text)
 		}
 	case "tool_call":
-		out = append(out, fmt.Sprintf("[Tool Call: %s]", d.Name))
+		out = append(out, fmt.Sprintf("[Tool: %s]", d.Name))
 		if d.Input != "" {
 			out = append(out, fmt.Sprintf("Input: %s", d.Input))
 		}
@@ -50,7 +50,11 @@ func formatPart(part MessagePart) []string {
 		}
 	case "tool_result":
 		if d.IsError {
-			out = append(out, fmt.Sprintf("[Tool Error]\n%s", runeAwareTruncate(d.Content, 1000)))
+			if d.Name != "" {
+				out = append(out, fmt.Sprintf("[Tool Error: %s]\n%s", d.Name, runeAwareTruncate(d.Content, 1000)))
+			} else {
+				out = append(out, fmt.Sprintf("[Tool Error]\n%s", runeAwareTruncate(d.Content, 1000)))
+			}
 		} else {
 			out = append(out, fmt.Sprintf("[Tool Result]\n%s", runeAwareTruncate(d.Content, 1000)))
 		}
@@ -142,7 +146,7 @@ type partData struct {
 // FormatLargeFileForContext returns the marker string for large file references.
 // E9: includes exploration hint when an exploration summary is available.
 func FormatLargeFileForContext(f *LargeFile) string {
-	base := fmt.Sprintf("[Large File Stored: %s]\n[Path: %s]\n[Type: %s]\n[Tokens: %d]\n(File content stored externally - use file ID to retrieve)",
+	base := fmt.Sprintf("[Large File ID: %s]\n[Path: %s]\n[Type: %s]\n[Tokens: %d]\n(File content stored externally - use file ID to retrieve)",
 		f.FileID, f.OriginalPath, f.MimeType, f.TokenCount)
 	if f.ExplorationSummary != "" {
 		base += fmt.Sprintf("\n[Explored by: %s]\n%s", f.ExplorerUsed, f.ExplorationSummary)

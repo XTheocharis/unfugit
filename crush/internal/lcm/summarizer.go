@@ -41,32 +41,32 @@ func (s *EscalationSummarizer) SummarizeMessages(
 	}
 	inputTokens := calculateInputTokens(messages)
 
-	// Level 1: Normal
+	// Level 1: Normal — API errors propagate (matching Volt's behavior where
+	// generateText exceptions abort compaction rather than triggering escalation).
 	summary, err := s.summarizeNormal(ctx, messages)
-	if err == nil && summary.TokenCount < inputTokens {
+	if err != nil {
+		return nil, fmt.Errorf("summarization failed: %w", err)
+	}
+	if summary.TokenCount < inputTokens {
 		return summary, nil
 	}
-	if err != nil {
-		log.Printf("Level 1 summarization failed, escalating: %v", err)
-	}
+	log.Printf("Normal summary not smaller than input (%d >= %d), escalating to aggressive",
+		summary.TokenCount, inputTokens)
 	lastGoodOutput := summary
 
-	// Level 2: Aggressive
+	// Level 2: Aggressive — API errors propagate, only size triggers fallback.
 	summary, err = s.summarizeAggressive(ctx, messages)
-	if err == nil && summary.TokenCount < inputTokens {
+	if err != nil {
+		return nil, fmt.Errorf("aggressive summarization failed: %w", err)
+	}
+	if summary.TokenCount < inputTokens {
 		return summary, nil
 	}
-	if err != nil {
-		log.Printf("Level 2 summarization failed, escalating to fallback: %v", err)
-	}
-	if err == nil {
-		lastGoodOutput = summary
-	}
+	log.Printf("Aggressive summary not smaller than input (%d >= %d), escalating to fallback",
+		summary.TokenCount, inputTokens)
+	lastGoodOutput = summary
 
-	// Level 3: Fallback
-	if lastGoodOutput == nil {
-		return nil, fmt.Errorf("all summarization levels failed (no output produced)")
-	}
+	// Level 3: Fallback (deterministic truncation, guaranteed smaller)
 	return s.summarizeFallback(lastGoodOutput.Content, messages)
 }
 
@@ -99,10 +99,10 @@ func (s *EscalationSummarizer) summarizeAggressive(
 ) (*Summary, error) {
 	formattedInput := FormatMessagesForSummary(messages)
 	prompt := buildPrompt(s.prompts.SummarizeAggressive, formattedInput)
+	// Volt omits maxTokens for all levels — brevity is prompt-guided, not API-enforced.
 	response, err := s.llmClient.Generate(ctx, LLMRequest{
-		Model:     s.model,
-		Prompt:    prompt,
-		MaxTokens: 500,
+		Model:  s.model,
+		Prompt: prompt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("level 2 aggressive summarization failed: %w", err)
@@ -131,8 +131,8 @@ func (s *EscalationSummarizer) summarizeFallback(
 
 	fileIDs := extractFileIDsFromMessages(originalMessages)
 	var metadata strings.Builder
-	for _, id := range fileIDs {
-		fmt.Fprintf(&metadata, "\n[LCM File ID: %s]", id)
+	if len(fileIDs) > 0 {
+		fmt.Fprintf(&metadata, "\n[LCM File IDs: %s]", strings.Join(fileIDs, ", "))
 	}
 	fmt.Fprintf(&metadata, "\n[Truncated from %d tokens to ≤%d tokens]",
 		EstimateTokenCount(bestOutput), FallbackMaxTokens)
@@ -157,23 +157,27 @@ func (s *EscalationSummarizer) CondenseSummaries(
 	}
 	inputTokens := calculateSummaryTokens(summaries)
 
+	// Level 1: Normal — API errors propagate (matching Volt).
 	condensed, err := s.condenseNormal(ctx, summaries)
-	if err == nil && condensed.TokenCount < inputTokens {
+	if err != nil {
+		return nil, fmt.Errorf("condensation failed: %w", err)
+	}
+	if condensed.TokenCount < inputTokens {
 		return condensed, nil
 	}
 	lastGoodOutput := condensed
 
+	// Level 2: Aggressive — API errors propagate, only size triggers fallback.
 	condensed, err = s.condenseAggressive(ctx, summaries)
-	if err == nil && condensed.TokenCount < inputTokens {
+	if err != nil {
+		return nil, fmt.Errorf("aggressive condensation failed: %w", err)
+	}
+	if condensed.TokenCount < inputTokens {
 		return condensed, nil
 	}
-	if err == nil {
-		lastGoodOutput = condensed
-	}
+	lastGoodOutput = condensed
 
-	if lastGoodOutput == nil {
-		return nil, fmt.Errorf("all condensation levels failed (no output produced)")
-	}
+	// Level 3: Fallback (deterministic truncation, guaranteed smaller)
 	return s.condenseFallback(lastGoodOutput.Content, summaries)
 }
 
@@ -206,10 +210,10 @@ func (s *EscalationSummarizer) condenseAggressive(
 	ctx context.Context, summaries []Summary,
 ) (*Summary, error) {
 	prompt := buildCondensePrompt(s.prompts.CondenseAggressive, summaries)
+	// Volt omits maxTokens for all levels — brevity is prompt-guided, not API-enforced.
 	response, err := s.llmClient.Generate(ctx, LLMRequest{
-		Model:     s.model,
-		Prompt:    prompt,
-		MaxTokens: 600,
+		Model:  s.model,
+		Prompt: prompt,
 	})
 	if err != nil {
 		return nil, err
@@ -242,8 +246,8 @@ func (s *EscalationSummarizer) condenseFallback(
 	fileIDs := aggregateFileIDs(originalSummaries)
 	var metadata strings.Builder
 	fmt.Fprintf(&metadata, "[Condensed from: %s]", strings.Join(parentIDs, ", "))
-	for _, id := range fileIDs {
-		fmt.Fprintf(&metadata, "\n[LCM File ID: %s]", id)
+	if len(fileIDs) > 0 {
+		fmt.Fprintf(&metadata, "\n[LCM File IDs: %s]", strings.Join(fileIDs, ", "))
 	}
 	fmt.Fprintf(&metadata, "\n[Truncated from %d tokens to ≤%d tokens]",
 		EstimateTokenCount(bestOutput), FallbackMaxTokens)
@@ -329,18 +333,13 @@ func getSummaryIDs(summaries []Summary) []string {
 	return ids
 }
 
-// appendFileIDMarkers appends [LCM File ID: ...] markers to content,
-// matching Volt's behavior of embedding file IDs in all summarization levels.
+// appendFileIDMarkers appends Volt's plural [LCM File IDs: ...] marker to content.
+// Volt format (summarize.ts:103): [LCM File IDs: file_xxx, file_yyy]
 func appendFileIDMarkers(content string, fileIDs []string) string {
 	if len(fileIDs) == 0 {
 		return content
 	}
-	var b strings.Builder
-	b.WriteString(content)
-	for _, id := range fileIDs {
-		fmt.Fprintf(&b, "\n[LCM File ID: %s]", id)
-	}
-	return b.String()
+	return content + fmt.Sprintf("\n[LCM File IDs: %s]", strings.Join(fileIDs, ", "))
 }
 
 func aggregateFileIDs(summaries []Summary) []string {

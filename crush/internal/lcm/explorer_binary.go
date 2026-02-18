@@ -160,12 +160,16 @@ type ImageExplorer struct{}
 func (ImageExplorer) Name() string { return "image" }
 
 func (ImageExplorer) CanExplore(path string, mimeType string) bool {
+	// B4: Exclude SVG — it's XML text, not a binary image (Volt's dispatcher excludes image/svg+xml).
+	if mimeType == "image/svg+xml" {
+		return false
+	}
 	if strings.HasPrefix(mimeType, "image/") {
 		return true
 	}
 	ext := filepath.Ext(path)
 	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp":
+	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp":
 		return true
 	}
 	return false
@@ -265,10 +269,14 @@ type ExecutableExplorer struct{}
 func (ExecutableExplorer) Name() string { return "executable" }
 
 func (ExecutableExplorer) CanExplore(path string, mimeType string) bool {
-	if mimeType == "application/x-executable" || mimeType == "application/x-mach-binary" ||
-		mimeType == "application/x-dosexec" || mimeType == "application/x-elf" {
+	switch mimeType {
+	case "application/x-executable", "application/x-mach-binary",
+		"application/x-dosexec", "application/x-elf",
+		"application/x-sharedlib", "application/x-object",
+		"application/wasm", "application/vnd.microsoft.portable-executable":
 		return true
 	}
+
 	// Check magic bytes
 	f, err := os.Open(path)
 	if err != nil {

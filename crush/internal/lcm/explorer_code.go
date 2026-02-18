@@ -106,7 +106,11 @@ type PythonExplorer struct{}
 func (PythonExplorer) Name() string { return "python" }
 
 func (PythonExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/x-python" || filepath.Ext(path) == ".py"
+	if mimeType == "text/x-python" || mimeType == "application/x-python" {
+		return true
+	}
+	ext := filepath.Ext(path)
+	return ext == ".py" || ext == ".pyi" || ext == ".pyw" || ext == ".pyx" || ext == ".pxd"
 }
 
 func (PythonExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {

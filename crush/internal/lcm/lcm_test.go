@@ -23,11 +23,11 @@ func TestEstimateTokenCount(t *testing.T) {
 		expected int
 	}{
 		{"empty", "", 0},
-		{"short", "hello", 2},       // ceil(5/4) = 2
-		{"exact", "abcd", 1},        // ceil(4/4) = 1
-		{"longer", "hello world, this is a test", 7}, // ceil(26/4) = 7
-		{"unicode", "こんにちは世界", 2}, // ceil(7/4) = 2
-		{"emoji", "👋🌍🎉🎊", 1},    // ceil(4/4) = 1
+		{"short", "hello", 1},       // round(5/4) = round(1.25) = 1
+		{"exact", "abcd", 1},        // round(4/4) = 1
+		{"longer", "hello world, this is a test", 7}, // round(26/4) = round(6.5) = 7
+		{"unicode", "こんにちは世界", 2}, // round(7/4) = round(1.75) = 2
+		{"emoji", "👋🌍🎉🎊", 1},    // round(4/4) = 1
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,10 +92,13 @@ func TestComputeTokenBudgetSmall(t *testing.T) {
 }
 
 func TestCompactionTargetBelowSoftThreshold(t *testing.T) {
+	// B1: Volt's TARGET_FREE_PERCENTAGE=0.25 is dead code (never referenced).
+	// Actual Volt behavior: compaction stops at 100% of softThreshold.
+	// With TargetFreePercent=0, target == softThreshold.
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
 	target := budget.SoftThreshold * (100 - lcm.TargetFreePercent) / 100
-	if target >= budget.SoftThreshold {
-		t.Errorf("target (%d) >= softThreshold (%d): compaction would never make progress",
+	if target != budget.SoftThreshold {
+		t.Errorf("target (%d) != softThreshold (%d): with TargetFreePercent=0 they should match",
 			target, budget.SoftThreshold)
 	}
 }
@@ -227,18 +230,9 @@ func TestFallbackFileIDsExtractable(t *testing.T) {
 	if !strings.Contains(summary.Content, "file_bbbbbbbbbbbbbbbb") {
 		t.Errorf("fallback should preserve file_bbbb in content, got: %s", summary.Content)
 	}
-	lines := strings.Split(summary.Content, "\n")
-	aaFound, bbFound := false, false
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "[LCM File ID: file_aaaaaaaaaaaaaaaa]" {
-			aaFound = true
-		}
-		if strings.TrimSpace(line) == "[LCM File ID: file_bbbbbbbbbbbbbbbb]" {
-			bbFound = true
-		}
-	}
-	if !aaFound || !bbFound {
-		t.Errorf("file IDs should appear as individual [LCM File ID: ...] lines, got:\n%s", summary.Content)
+	// D2: Volt uses plural format [LCM File IDs: file_xxx, file_yyy]
+	if !strings.Contains(summary.Content, "[LCM File IDs: file_aaaaaaaaaaaaaaaa, file_bbbbbbbbbbbbbbbb]") {
+		t.Errorf("file IDs should appear as plural [LCM File IDs: ...] line, got:\n%s", summary.Content)
 	}
 }
 
@@ -282,7 +276,7 @@ func TestFormatMessagesForSummary_ToolCall(t *testing.T) {
 		},
 	}
 	result := lcm.FormatMessagesForSummary(messages)
-	if !strings.Contains(result, "[Tool Call: bash]") {
+	if !strings.Contains(result, "[Tool: bash]") {
 		t.Errorf("should format tool call with name, got:\n%s", result)
 	}
 	if !strings.Contains(result, `Input: {"cmd":"ls"}`) {

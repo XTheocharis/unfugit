@@ -18,7 +18,10 @@ type JSONExplorer struct{}
 func (JSONExplorer) Name() string { return "json" }
 
 func (JSONExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "application/json" || filepath.Ext(path) == ".json"
+	if mimeType == "application/json" || strings.HasSuffix(mimeType, "+json") {
+		return true
+	}
+	return filepath.Ext(path) == ".json"
 }
 
 func (JSONExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -192,7 +195,11 @@ type CSVExplorer struct{}
 func (CSVExplorer) Name() string { return "csv" }
 
 func (CSVExplorer) CanExplore(path string, mimeType string) bool {
-	return mimeType == "text/csv" || filepath.Ext(path) == ".csv"
+	if mimeType == "text/csv" || mimeType == "text/tab-separated-values" {
+		return true
+	}
+	ext := filepath.Ext(path)
+	return ext == ".csv" || ext == ".tsv"
 }
 
 func (CSVExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {
@@ -260,7 +267,7 @@ type YAMLExplorer struct{}
 func (YAMLExplorer) Name() string { return "yaml" }
 
 func (YAMLExplorer) CanExplore(path string, mimeType string) bool {
-	if mimeType == "application/x-yaml" || mimeType == "text/yaml" {
+	if mimeType == "application/x-yaml" || mimeType == "text/yaml" || mimeType == "text/x-yaml" {
 		return true
 	}
 	ext := filepath.Ext(path)
@@ -461,7 +468,7 @@ type XMLExplorer struct{}
 func (XMLExplorer) Name() string { return "xml" }
 
 func (XMLExplorer) CanExplore(path string, mimeType string) bool {
-	if mimeType == "application/xml" || mimeType == "text/xml" {
+	if mimeType == "application/xml" || mimeType == "text/xml" || strings.HasSuffix(mimeType, "+xml") {
 		return true
 	}
 	return filepath.Ext(path) == ".xml"
@@ -547,11 +554,11 @@ type HTMLExplorer struct{}
 func (HTMLExplorer) Name() string { return "html" }
 
 func (HTMLExplorer) CanExplore(path string, mimeType string) bool {
-	if mimeType == "text/html" {
+	if mimeType == "text/html" || mimeType == "application/xhtml+xml" {
 		return true
 	}
 	ext := filepath.Ext(path)
-	return ext == ".html" || ext == ".htm"
+	return ext == ".html" || ext == ".htm" || ext == ".xhtml"
 }
 
 func (HTMLExplorer) Explore(_ context.Context, path string, _ string, maxTokens int) (*ExplorationResult, error) {

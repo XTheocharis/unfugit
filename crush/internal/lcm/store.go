@@ -290,6 +290,11 @@ func (s *SQLiteStore) GetSummariesByIDs(ctx context.Context, ids []string) ([]Su
 		if err := json.Unmarshal([]byte(row.FileIds), &fileIDs); err != nil {
 			fileIDs = []string{}
 		}
+		// M6: populate Parents from lcm_summary_parents
+		parents, _ := s.q.LCMGetSummaryParentIDs(ctx, id)
+		if parents == nil {
+			parents = []string{}
+		}
 		summaries = append(summaries, Summary{
 			SummaryID:  row.SummaryID,
 			SessionID:  row.SessionID,
@@ -297,6 +302,8 @@ func (s *SQLiteStore) GetSummariesByIDs(ctx context.Context, ids []string) ([]Su
 			Content:    row.Content,
 			TokenCount: row.TokenCount,
 			FileIDs:    fileIDs,
+			Parents:    parents,
+			CreatedAt:  row.CreatedAt,
 		})
 	}
 	return summaries, nil
@@ -426,6 +433,7 @@ func (s *SQLiteStore) GetAllSummaries(ctx context.Context, sessionID string) ([]
 			Content:    row.Content,
 			TokenCount: row.TokenCount,
 			FileIDs:    fileIDs,
+			CreatedAt:  row.CreatedAt,
 		}
 	}
 	return summaries, nil
@@ -458,6 +466,7 @@ func (s *SQLiteStore) GetCoveringSummary(ctx context.Context, sessionID string, 
 		Content:    row.Content,
 		TokenCount: row.TokenCount,
 		FileIDs:    fileIDs,
+		CreatedAt:  row.CreatedAt,
 	}, nil
 }
 
@@ -805,7 +814,7 @@ func (s *SQLiteStore) SearchSummaries(ctx context.Context, sessionID string, que
 	safe := "\"" + strings.ReplaceAll(query, "\"", " ") + "\""
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT s.summary_id, s.session_id, s.kind, s.content, s.token_count, s.file_ids
+		`SELECT s.summary_id, s.session_id, s.kind, s.content, s.token_count, s.file_ids, s.created_at
 		 FROM lcm_summaries_fts fts
 		 JOIN lcm_summaries s ON s.rowid = fts.rowid
 		 WHERE lcm_summaries_fts MATCH ?
@@ -821,7 +830,7 @@ func (s *SQLiteStore) SearchSummaries(ctx context.Context, sessionID string, que
 	for rows.Next() {
 		var s Summary
 		var fileIDsJSON string
-		if err := rows.Scan(&s.SummaryID, &s.SessionID, &s.Kind, &s.Content, &s.TokenCount, &fileIDsJSON); err != nil {
+		if err := rows.Scan(&s.SummaryID, &s.SessionID, &s.Kind, &s.Content, &s.TokenCount, &fileIDsJSON, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(fileIDsJSON), &s.FileIDs); err != nil {

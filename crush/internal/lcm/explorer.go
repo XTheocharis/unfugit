@@ -100,22 +100,68 @@ func (r *ExplorerRegistry) RegisterLLMExplorer(client LLMClient, model string) {
 	r.explorers = append(r.explorers[:pos], append([]Explorer{llmExplorer}, r.explorers[pos:]...)...)
 }
 
-// Explore finds a suitable explorer for the given MIME type and runs it.
-// Returns nil, nil if no explorer can handle the MIME type.
+// Explore finds a suitable explorer using Volt's 3-tier cascade (M8):
+// extension → MIME type → magic bytes / catch-all.
+// This ensures extension-specific explorers take priority over MIME-based ones.
 func (r *ExplorerRegistry) Explore(ctx context.Context, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
-	for _, e := range r.explorers {
-		if e.CanExplore(path, mimeType) {
-			result, err := e.Explore(ctx, path, mimeType, maxTokens)
-			if err != nil {
-				return nil, err
+	ext := filepath.Ext(path)
+
+	// Tier 1: Extension-based match.
+	// Pass empty MIME to CanExplore so only extension/magic-byte logic triggers.
+	// Catch-all explorers (text, fallback, llm-summary) are skipped.
+	if ext != "" {
+		for _, e := range r.explorers {
+			if isCatchAllExplorer(e) {
+				continue
 			}
-			if result != nil {
-				result.ExplorerUsed = e.Name()
+			if e.CanExplore(path, "") {
+				return r.runExplorer(ctx, e, path, mimeType, maxTokens)
 			}
-			return result, nil
 		}
 	}
+
+	// Tier 2: MIME type match.
+	// Pass empty path to CanExplore so only MIME logic triggers.
+	if mimeType != "" {
+		for _, e := range r.explorers {
+			if isCatchAllExplorer(e) {
+				continue
+			}
+			if e.CanExplore("", mimeType) {
+				return r.runExplorer(ctx, e, path, mimeType, maxTokens)
+			}
+		}
+	}
+
+	// Tier 3: Full match (magic bytes, catch-all explorers).
+	for _, e := range r.explorers {
+		if e.CanExplore(path, mimeType) {
+			return r.runExplorer(ctx, e, path, mimeType, maxTokens)
+		}
+	}
+
 	return nil, nil
+}
+
+// isCatchAllExplorer returns true for generic explorers excluded from
+// extension-only and MIME-only tiers to prevent premature matching.
+func isCatchAllExplorer(e Explorer) bool {
+	switch e.Name() {
+	case "text", "fallback", "llm-summary":
+		return true
+	}
+	return false
+}
+
+func (r *ExplorerRegistry) runExplorer(ctx context.Context, e Explorer, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
+	result, err := e.Explore(ctx, path, mimeType, maxTokens)
+	if err != nil {
+		return nil, err
+	}
+	if result != nil {
+		result.ExplorerUsed = e.Name()
+	}
+	return result, nil
 }
 
 // ListExplorers returns the names of all registered explorers.

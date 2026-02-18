@@ -83,9 +83,14 @@ func GetLargeFileContent(originalPath string, maxBytes int64) (*LargeFileContent
 }
 
 // GenerateFileIDFromPath creates a deterministic ID from file metadata.
+// Matches Volt's generateFileIdFromPath (db.ts:1637-1646):
+//
+//	hash.update(`${conversationId}:${filePath}:${fileSize}:${mtime.getTime()}`)
+//
+// Uses colon separator and millisecond timestamp to produce identical hashes.
 func GenerateFileIDFromPath(sessionID string, filePath string, fileSize int64, mtime time.Time) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%d|%d", sessionID, filePath, fileSize, mtime.Unix())
+	fmt.Fprintf(h, "%s:%s:%d:%d", sessionID, filePath, fileSize, mtime.UnixMilli())
 	hash := hex.EncodeToString(h.Sum(nil))
 	return FileIDPrefix + hash[:FileIDLength]
 }

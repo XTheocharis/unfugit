@@ -7,7 +7,9 @@ package lcm
 const DefaultCtxCutoffPercent = 60
 
 // TargetFreePercent: continue compacting until this fraction of the soft threshold is free.
-const TargetFreePercent = 25
+// Volt declares TARGET_FREE_PERCENTAGE = 0.25 but never uses it — compaction
+// stops at 100% of softThreshold. We match Volt's actual behavior (0%).
+const TargetFreePercent = 0
 
 // MinMessagesToSummarize: minimum messages to summarize in one operation.
 const MinMessagesToSummarize = 3
@@ -43,18 +45,27 @@ const (
 	FileIDLength    = 16
 )
 
-// EstimateTokenCount estimates token count from string content using rune count.
-// Uses ceiling division to match Volt's Math.ceil(content.length / CHARS_PER_TOKEN).
+// EstimateTokenCount estimates token count from string content.
+// Uses round-half-up to match Volt's primary Token.estimate() (util/token.ts:5):
+//
+//	Math.max(0, Math.round((input || "").length / CHARS_PER_TOKEN))
+//
+// Note: Volt uses UTF-16 code units (string.length); Go uses Unicode code points
+// (len([]rune)). For BMP characters (the vast majority of LLM content) these are identical.
 func EstimateTokenCount(content string) int {
 	if content == "" {
 		return 0
 	}
 	n := len([]rune(content))
-	return (n + CharsPerToken - 1) / CharsPerToken
+	// Round half-up: equivalent to Math.round(n / 4) = floor(n/4 + 0.5) = (n + 2) / 4
+	return (n + CharsPerToken/2) / CharsPerToken
 }
 
 // EstimateTokenCountFromBytes estimates tokens from a byte length.
-// Uses ceiling division to match Volt's BigInt(Math.ceil(fileSize / 4)).
+// Uses ceiling division to match Volt's LargeFileThreshold.estimateTokenCount()
+// (large-file-threshold.ts:54): Math.ceil(content.length / CHARS_PER_TOKEN).
+// The byte-level estimator deliberately uses ceil (not round) to match Volt's
+// secondary estimator used for large-file threshold checks.
 func EstimateTokenCountFromBytes(byteLen int64) int64 {
 	return (byteLen + CharsPerToken - 1) / CharsPerToken
 }

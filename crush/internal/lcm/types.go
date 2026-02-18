@@ -29,6 +29,8 @@ type Summary struct {
 	Content    string
 	TokenCount int64
 	FileIDs    []string
+	Parents    []string // M6: parent summary IDs (Volt's Summary.Info.parents)
+	CreatedAt  int64    // M6: creation timestamp (Volt's Summary.Info.createdAt)
 }
 
 // ContextEntry represents one item in the active context window.
@@ -153,6 +155,7 @@ type LLMRequest struct {
 	Model     string
 	Prompt    string
 	MaxTokens int
+	Messages  []LCMMessage // D5: structured role-based messages (Volt's messages array)
 }
 
 // LLMResponse is the output from an LLM generation call.

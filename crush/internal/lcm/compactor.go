@@ -23,7 +23,7 @@ func (c *Compactor) CompactContext(
 	sessionID string,
 	budget TokenBudget,
 ) (int, error) {
-	for round := 0; round < MaxCompactionRounds; round++ {
+	for round := 1; round <= MaxCompactionRounds; round++ {
 		currentTokens, err := c.store.GetContextTokenCount(ctx, sessionID)
 		if err != nil {
 			return round, fmt.Errorf("failed to get context token count: %w", err)
