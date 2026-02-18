@@ -23,6 +23,13 @@ The following errors/omissions were found during plan verification and are addre
 | E11 | `LCMGetMessageByID` query doesn't return `token_count` column | Update query and row struct after adding column |
 | E12 | `GetMessagesByIDs`/`ExpandSummaryToMessages` always re-estimate tokens | Prefer pre-computed `token_count` when available |
 | E13 | `Message` struct in `models.go` missing `TokenCount` field | Add the field |
+| E14 | `Explorer.CanExplore(mimeType)` has no path/extension — code explorers can't distinguish `.go` from `.py` when MIME is generic | Change to `CanExplore(path string, mimeType string) bool` |
+| E15 | `NewLCM(db *sql.DB, queries *db.Queries, ...)` — param `db` shadows imported `db` package | Rename to `sqlDB *sql.DB` |
+| E16 | `LCMGetLargeFile` query and `store.GetLargeFile` don't return new exploration columns | Update query SELECT and Scan |
+| E17 | Exploration cache SQL stores only summary+explorer, but `ExplorationResult` needs `FileIDs`/`TokenCount` | Derive via `extractFileIDs()`/`EstimateTokenCount()` on cache read |
+| E18 | `LlmMapRunConfig` type referenced in Phase 7.1 is never defined | Define in Phase 6.2 |
+| E19 | `SearchMessages`/`SearchMessagesRegex` raw SQL missing `m.token_count` | Add to SELECT in Go SQL strings |
+| E20 | `querier.go` Querier interface missing 7 methods from commit 7129b82 + no plan to update for new queries | Update interface for all new methods |
 
 ---
 
@@ -224,30 +231,46 @@ DROP TRIGGER IF EXISTS messages_compute_token_count;
 
 ## Phase 2: SQL Queries & Generated Code
 
-### 2.1 Fix existing SQL to use ceiling division (E1)
+### 2.1 Fix existing SQL to use ceiling division + pre-computed tokens (E1, E12)
 
 **File:** `crush/internal/db/sql/lcm.sql`
 
-Update `LCMGetCurrentContext` — change:
+Update `LCMGetCurrentContext` — replace the message token estimation (line 10):
 ```sql
-WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
-```
-to:
-```sql
-WHEN ci.item_type = 'message' THEN (LENGTH(COALESCE(m.parts, '')) + 3) / 4
+-- OLD: WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+-- NEW (single final form — prefers pre-computed, falls back to ceiling division):
+WHEN ci.item_type = 'message' THEN COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4)
 ```
 
-Update `LCMGetContextTokenCount` — same change in the SUM/CASE:
+Update `LCMGetContextTokenCount` — same single replacement in the SUM/CASE (line 23):
 ```sql
-WHEN ci.item_type = 'message' THEN (LENGTH(COALESCE(m.parts, '')) + 3) / 4
-```
-
-Additionally, when `messages.token_count` is available, prefer it:
-```sql
+-- OLD: WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+-- NEW:
 WHEN ci.item_type = 'message' THEN COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4)
 ```
 
 **File:** `crush/internal/db/lcm.sql.go` — update the SQL string constants to match.
+
+### 2.1b Update LCMGetLargeFile to return new columns (E16)
+
+**File:** `crush/internal/db/sql/lcm.sql` — change:
+```sql
+-- name: LCMGetLargeFile :one
+SELECT file_id, session_id, original_path, mime_type, token_count, created_at,
+       exploration_summary, explorer_used
+FROM lcm_large_files WHERE file_id = ?;
+```
+
+**File:** `crush/internal/db/lcm.sql.go` — update `LcmLargeFile` scan to include `ExplorationSummary` and `ExplorerUsed`.
+
+**File:** `crush/internal/lcm/store.go` — update `GetLargeFile` (line 351) to populate new fields:
+```go
+return &LargeFile{
+    // ... existing fields ...
+    ExplorationSummary: row.ExplorationSummary.String,
+    ExplorerUsed:       row.ExplorerUsed.String,
+}, nil
+```
 
 ### 2.2 Update LCMGetMessageByID to return token_count (E11)
 
@@ -355,6 +378,29 @@ Current `db.go` has 49 prepared statements. New additions:
 - All llm_map CRUD stmts (~7)
 Total: ~67 statements after changes.
 
+### 2.7 Update Querier interface (E20)
+
+**File:** `crush/internal/db/querier.go`
+
+**Pre-existing gap:** The Querier interface is missing 7 methods added in commit 7129b82 that already exist on `*Queries`:
+- `LCMGetChildSummaryIDs`
+- `LCMGetCoveringSummaryForMessages`
+- `LCMGetAllSummaries`
+- `LCMDeleteSummary`
+- `LCMGetSessionConfig`
+- `LCMUpsertSessionConfig`
+- `LCMGetSummaryMessageSessionIDs`
+
+Add these plus all new methods from this plan:
+- `LCMGetMessagesToSummarizeByTokenBudget`
+- `LCMUpdateLargeFileExploration`
+- `LCMGetLargeFileExploration`
+- All message_parts CRUD methods (~4)
+- All agentic_map CRUD methods (~7)
+- All llm_map CRUD methods (~7)
+
+The compile-time check `var _ Querier = (*Queries)(nil)` validates the interface is complete.
+
 ---
 
 ## Phase 3: Token Management Parity (SQ-1, IT-1, IT-2, IT-3)
@@ -389,7 +435,11 @@ func (s *SQLiteStore) GetMessagesByIDs(ctx context.Context, ids []string) ([]LCM
 }
 ```
 
-Similarly update `ExpandSummaryToMessages` (line 303) and `SearchMessages` (line 457) and `SearchMessagesRegex` (line 492) to prefer pre-computed token counts.
+Similarly update `ExpandSummaryToMessages` (line 303) to prefer pre-computed token counts.
+
+**Also update raw SQL in store.go (E19):** `SearchMessages` (line 457) and `SearchMessagesRegex` (line 492) use raw SQL strings (not sqlc) for FTS5 queries. Both need:
+1. Add `m.token_count` to the SELECT clause in the raw SQL string
+2. Use `COALESCE(m.token_count, EstimateTokenCount(...))` pattern when constructing `LCMMessage`
 
 ### 3.2 Token-budget windowed message selection (SQ-8 full parity)
 
@@ -458,7 +508,7 @@ func ComputeTokenBudget(
 | `lcm_test.go` | 698 | `TestCompactContext_Convergence` |
 | `lcm_test.go` | 716 | `TestCompactContext_NoProgress` |
 | `lcm_test.go` | 737 | `TestScheduleCompaction_DuplicateRejected` |
-| `lcm_test.go` | 764 | `TestScheduleCompaction_EventBusPublishes` |
+| `lcm_test.go` | 763 | `TestScheduleCompaction_EventBusPublishes` |
 | `lcm_test.go` | 877 | `TestCompactContext_ReplacesPositions` |
 
 Plus the new `NewLCM` constructor in Phase 7 (which directly calls it).
@@ -567,6 +617,25 @@ func (s *SQLiteStore) GetContextTokenCount(ctx context.Context, sessionID string
 
 **File:** `crush/internal/lcm/explorer.go`
 
+**Change Explorer interface to include path in CanExplore (E14)**:
+```go
+type Explorer interface {
+    Name() string
+    CanExplore(path string, mimeType string) bool  // E14: path added for extension-based dispatch
+    Explore(ctx context.Context, path string, mimeType string, maxTokens int) (*ExplorationResult, error)
+}
+```
+
+**Update TextExplorer.CanExplore** (line 79) to accept the new signature:
+```go
+func (TextExplorer) CanExplore(path string, mimeType string) bool {
+    return strings.HasPrefix(mimeType, "text/") ||
+        mimeType == "application/json" ||
+        // ... rest unchanged ...
+        mimeType == ""
+}
+```
+
 Update `ExplorationResult` to include `ExplorerUsed` **(E8)**:
 ```go
 type ExplorationResult struct {
@@ -577,11 +646,11 @@ type ExplorationResult struct {
 }
 ```
 
-Update `ExplorerRegistry.Explore` to set `ExplorerUsed` from the matched explorer's `Name()` **(E8)**:
+Update `ExplorerRegistry.Explore` to pass path to `CanExplore` and set `ExplorerUsed` **(E8, E14)**:
 ```go
 func (r *ExplorerRegistry) Explore(ctx context.Context, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
     for _, e := range r.explorers {
-        if e.CanExplore(mimeType) {
+        if e.CanExplore(path, mimeType) {  // E14: path passed
             result, err := e.Explore(ctx, path, mimeType, maxTokens)
             if err != nil {
                 return nil, err
@@ -634,6 +703,22 @@ SetLargeFileExploration(ctx context.Context, fileID string, result *ExplorationR
 
 **File:** `crush/internal/lcm/store.go` — implement both methods using the new SQL queries from Phase 2.4.
 
+**Cache reconstruction note (E17):** The SQL only stores `exploration_summary` and `explorer_used`. When reading from cache, derive the remaining fields:
+```go
+func (s *SQLiteStore) GetLargeFileExploration(ctx context.Context, fileID string) (*ExplorationResult, error) {
+    row, err := s.q.LCMGetLargeFileExploration(ctx, fileID)
+    if err != nil {
+        return nil, err
+    }
+    return &ExplorationResult{
+        Summary:      row.ExplorationSummary,
+        ExplorerUsed: row.ExplorerUsed,
+        FileIDs:      extractFileIDs(row.ExplorationSummary),   // E17: derive
+        TokenCount:   EstimateTokenCount(row.ExplorationSummary), // E17: derive
+    }, nil
+}
+```
+
 ### 5.3 Implement language-specific explorers
 
 **File:** `crush/internal/lcm/explorer_code.go` (NEW)
@@ -643,11 +728,13 @@ Common code explorer base that extracts imports, function/method signatures, cla
 
 Approach: Line-based pattern matching (not AST parsing) — extract `func`, `class`, `def`, `import`, `struct`, `interface`, `trait`, `impl`, `module`, etc. with surrounding context.
 
-Each explorer implements:
+Each explorer implements **(E14 — uses path for extension matching)**:
 ```go
 type GoExplorer struct{}
 func (GoExplorer) Name() string { return "go" }
-func (GoExplorer) CanExplore(mimeType string) bool { /* check for Go MIME types and extensions */ }
+func (GoExplorer) CanExplore(path string, mimeType string) bool {
+    return mimeType == "text/x-go" || filepath.Ext(path) == ".go"
+}
 func (GoExplorer) Explore(ctx context.Context, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
     // Read file, extract function signatures, struct defs, imports
     // Return structured summary within maxTokens
@@ -765,7 +852,29 @@ func (m *AgenticMapManager) GetResults(ctx context.Context, mapID string) ([]Age
 
 **File:** `crush/internal/lcm/llmmap.go` (NEW)
 
-Same pattern as agentic map but with LLM-specific parameters (model selection, provider resolution).
+Same pattern as agentic map but with LLM-specific parameters **(E18)**:
+```go
+type LlmMapManager struct {
+    store  Store
+    client LLMClient
+}
+
+type LlmMapRunConfig struct {
+    InputPath      string
+    Prompt         string
+    OutputSchema   string // JSON schema
+    Model          string
+    Concurrency    int
+    TimeoutSeconds int
+    MaxAttempts    int
+}
+
+func NewLlmMapManager(store Store, client LLMClient) *LlmMapManager
+func (m *LlmMapManager) CreateRun(ctx context.Context, config LlmMapRunConfig) (string, error)
+func (m *LlmMapManager) GetRun(ctx context.Context, mapID string) (*LlmMapRun, error)
+func (m *LlmMapManager) ProcessItems(ctx context.Context, mapID string) error
+func (m *LlmMapManager) GetResults(ctx context.Context, mapID string) ([]LlmMapItem, error)
+```
 
 ### 6.3 Store methods for map operations
 
@@ -821,9 +930,10 @@ func (l *LCM) CreateLlmMapRun(ctx context.Context, config LlmMapRunConfig) (stri
 
 **File:** `crush/internal/lcm/integration.go`
 
+**(E15: parameter renamed from `db` to `sqlDB` to avoid shadowing the imported `db` package)**
 ```go
-func NewLCM(db *sql.DB, queries *db.Queries, llmClient LLMClient, model string, prompts Prompts) *LCM {
-    store := NewSQLiteStore(queries, db)
+func NewLCM(sqlDB *sql.DB, queries *db.Queries, llmClient LLMClient, model string, prompts Prompts) *LCM {
+    store := NewSQLiteStore(queries, sqlDB)
     summarizer := NewEscalationSummarizer(llmClient, model, prompts)
     eventBus := NewChannelEventBus(100)
     manager := NewCompactionManager(eventBus)
@@ -917,7 +1027,7 @@ Add any new unexported functions that tests need access to.
 ## Files Modified (existing)
 
 - `crush/internal/db/migrations/20260221000000_lcm_feature_parity.sql` (NEW)
-- `crush/internal/db/sql/lcm.sql` (MODIFY — fix ceiling division, add windowed query, exploration cache)
+- `crush/internal/db/sql/lcm.sql` (MODIFY — fix ceiling division, add windowed query, exploration cache, update LCMGetLargeFile)
 - `crush/internal/db/sql/message_parts.sql` (NEW)
 - `crush/internal/db/sql/map.sql` (NEW)
 - `crush/internal/db/lcm.sql.go` (MODIFY — update existing queries, add new ones)
@@ -925,6 +1035,7 @@ Add any new unexported functions that tests need access to.
 - `crush/internal/db/map.sql.go` (NEW)
 - `crush/internal/db/db.go` (MODIFY — ~18 new prepared statements)
 - `crush/internal/db/models.go` (MODIFY — add fields to LcmLargeFile, Message; add MessagePart, map structs)
+- `crush/internal/db/querier.go` (MODIFY — add 7 missing methods from 7129b82 + all new query methods; E20)
 - `crush/internal/lcm/config.go` (MODIFY — ComputeTokenBudget signature)
 - `crush/internal/lcm/compactor.go` (MODIFY — condense-all, token-budget windowed selection)
 - `crush/internal/lcm/summarizer.go` (MODIFY — generateSummaryID and generateCondensedID to hash content+timestamp)
