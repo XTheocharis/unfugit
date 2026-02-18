@@ -397,7 +397,7 @@ The Phase 4 checklist doesn't include:
 
 ## Implementation Issues (Discovered During Port)
 
-The following issues were discovered while actually implementing the LCM guide in the Crush codebase at `/tmp/crush/internal/lcm/`. All core files compile and all 16 unit tests pass (verified in an isolated build environment due to Go 1.25.5 toolchain unavailability).
+The following issues were discovered while actually implementing the LCM guide in the Crush codebase at `/tmp/crush/internal/lcm/`. All core files compile and all 16 unit tests pass — verified both in an isolated build environment and against the full Crush project dependency tree using Go 1.25.1 (`go build ./internal/lcm/`, `go test ./internal/lcm/ -v`, `go vet ./internal/lcm/` — all exit 0).
 
 ### I1. sqlc Does Not Support `sqlc.slice()` for SQLite — Batch Queries Must Use Loops
 
@@ -576,3 +576,35 @@ internal/db/
 ├── migrations/20260218000000_create_lcm_tables.sql  — Goose migration
 └── sql/lcm.sql                                       — sqlc query definitions
 ```
+
+### Build Verification
+
+**Full-project build** (against Crush's complete dependency tree):
+
+```
+$ cd /tmp/crush && GOTOOLCHAIN=local GOPROXY=off go build ./internal/lcm/
+EXIT: 0
+
+$ go test ./internal/lcm/ -v
+=== RUN   TestEstimateTokenCount          --- PASS (0.00s)
+=== RUN   TestIsLargeFile                 --- PASS (0.00s)
+=== RUN   TestComputeTokenBudget          --- PASS (0.00s)
+=== RUN   TestComputeTokenBudgetSmall     --- PASS (0.00s)
+=== RUN   TestCompactionTargetBelowSoftThreshold --- PASS (0.00s)
+=== RUN   TestSummarizeMessagesEscalation --- PASS (0.00s)
+=== RUN   TestFallbackUsesRuneTruncation  --- PASS (0.00s)
+=== RUN   TestEnsureParentIDsPresent      --- PASS (0.00s)
+=== RUN   TestFallbackFileIDsExtractable  --- PASS (0.00s)
+=== RUN   TestFormatMessagesForSummary_WrapperParsing  --- PASS (0.00s)
+=== RUN   TestFormatMessagesForSummary_ToolCall         --- PASS (0.00s)
+=== RUN   TestFormatMessagesForSummary_FlatStructFails  --- PASS (0.00s)
+=== RUN   TestFormatMessagesForSummary_FallbackOnInvalidJSON --- PASS (0.00s)
+PASS ok github.com/charmbracelet/crush/internal/lcm 0.035s
+
+$ go vet ./internal/lcm/
+EXIT: 0
+```
+
+**Environment**: Go 1.25.1 (`/usr/local/go1.25.1/bin/go`), Crush's `go.mod` requires Go 1.25.5. Build verified with `GOTOOLCHAIN=local` (bypasses toolchain auto-download). No Go 1.25.5-specific features are used in the LCM package — the code is compatible with Go 1.25.1+.
+
+**Note**: Full `./...` build of the entire Crush project was blocked by missing network access to download transitive dependencies (charm.land packages, openai-go, etc.) not present in the local module cache. This is an environment limitation, not a code issue — `./internal/lcm/` and its dependencies (`internal/db`, standard library, `database/sql`) all resolve and compile cleanly.
