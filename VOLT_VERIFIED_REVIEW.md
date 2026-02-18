@@ -1,6 +1,6 @@
 # LCM Implementation Review: Crush vs Volt (Verified Against Volt Source)
 
-**Date:** 2026-02-18
+**Date:** 2026-02-18 (double-checked 2026-02-18)
 **Volt repo:** https://github.com/voltropy/volt (commit 2822943c8)
 **Crush branch:** claude/review-document-errors-CWPsA
 **Build status:** Clean (go build, go vet pass)
@@ -10,7 +10,7 @@
 
 ## Methodology
 
-Each finding was verified by reading the actual Volt source at `/tmp/volt/packages/voltcode/src/session/lcm/`. Line numbers reference specific Volt and Crush files.
+Each finding was verified by reading the actual Volt source at `/tmp/volt/packages/voltcode/src/session/lcm/`. Line numbers reference specific Volt and Crush files. All findings were then double-checked by re-reading both codebases; corrections are marked with **[CORRECTED]**.
 
 ---
 
@@ -76,7 +76,9 @@ if (normalized.startsWith("image/") && normalized !== "image/svg+xml") {
 ```
 Explicitly excludes SVG. Additionally, `.svg` is routed to XmlExplorer via extension (`dispatcher.ts:595`).
 
-**Impact:** SVG files (text-based XML) are incorrectly processed as binary images in Crush.
+Additionally, Crush's ImageExplorer extension switch (`explorer_binary.go:168`) explicitly lists `.svg`, compounding the issue. Volt routes `.svg` to XmlExplorer via `XML_EXTENSIONS` set (`dispatcher.ts:595`).
+
+**Impact:** SVG files (text-based XML) are incorrectly processed as binary images in Crush, both by MIME type and by extension.
 
 ---
 
@@ -100,34 +102,44 @@ Handles both `text/x-python` and `application/x-python`.
 
 **Impact:** Files served with `application/x-python` MIME type fall through to TextExplorer instead of PythonExplorer.
 
+Additionally, Crush's PythonExplorer only checks `.py` extension. Volt (`dispatcher.ts:655`) also handles `.pyi`, `.pyw`, `.pyx`, `.pxd`.
+
 ---
 
 ## BEHAVIORAL DIVERGENCES (9 issues)
 
 These are differences from Volt that are expected or acceptable in a port but could affect cross-system compatibility.
 
-### D1 [HIGH] File ID generation uses fundamentally different strategy
+### D1 [LOW] File ID hash format differs in separator and timestamp precision **[CORRECTED]**
 
-**Crush:** `largefile.go:86-91` — Hashes **metadata** (sessionID, path, size, mtime):
+**Original claim:** "Volt hashes file content; Crush hashes metadata — fundamentally different strategies."
+**Correction:** Volt's **active** function `generateFileIdFromPath` (`db.ts:1637-1646`) **also** hashes metadata, not content. The old content-hashing `generateId` (`large-file.ts:89`) still exists, but the DB-layer equivalents (`generateFileId`, `generateBinaryFileId` at `db.ts:1652,1665`) are explicitly marked `@deprecated` with "Use insertLargeFileFromPath instead." Both systems now use metadata-based hashing.
+
+**Volt (active):** `db.ts:1637-1646`:
+```typescript
+export async function generateFileIdFromPath(
+    conversationId: number, filePath: string, fileSize: number, mtime: Date,
+): Promise<string> {
+    const hash = new Bun.CryptoHasher("sha256")
+    hash.update(`${conversationId}:${filePath}:${fileSize}:${mtime.getTime()}`)
+    return `file_${hash.digest("hex").slice(0, 16)}`
+}
+```
+
+**Crush:** `largefile.go:86-91`:
 ```go
 fmt.Fprintf(h, "%s|%s|%d|%d", sessionID, filePath, fileSize, mtime.Unix())
 ```
 
-**Volt:** `large-file.ts:89-92` — Hashes **file content**:
-```typescript
-export function generateId(content: string | Uint8Array): string {
-    const hash = createHash("sha256").update(content).digest("hex").slice(0, 16)
-    return `file_${hash}`
-}
-```
+| Aspect | Volt (active) | Crush |
+|--------|---------------|-------|
+| Strategy | Metadata hash | Metadata hash |
+| Separator | `:` (colon) | `\|` (pipe) |
+| Timestamp | Milliseconds (`mtime.getTime()`) | Seconds (`mtime.Unix()`) |
+| Prefix | `file_` | `file_` |
+| Hash length | 16 hex chars | 16 hex chars |
 
-| Aspect | Volt | Crush |
-|--------|------|-------|
-| Hash input | Raw file content | `sessionID\|path\|size\|mtime` |
-| Dedup behavior | Same content = same ID (content-addressed) | Same path+metadata = same ID |
-| Cross-session | Same file = same ID across sessions | Different sessions = different IDs |
-
-**Impact:** File IDs for identical files will differ between systems. Volt's content-addressing enables deduplication; Crush's metadata-addressing does not.
+**Impact:** Same file produces different IDs between systems due to separator and timestamp precision differences. Not a fundamental strategy divergence — just a format mismatch.
 
 ---
 
@@ -199,7 +211,7 @@ messages: [
 **Crush:** `format.go:44` — `[Tool Call: name]`
 **Volt:** `summarize.ts:188` — `[Tool: name]`
 
-Additionally, Volt includes the tool name in error output (`[Tool: name] Error: ...`), while Crush omits it (`[Tool Error]\n...`).
+Additionally, Volt includes the tool name in error output: `[Tool: ${part.tool}] Error: ${part.state.error}` (`summarize.ts:197`). Crush omits the tool name: `[Tool Error]\n<content>` (`format.go:53`).
 
 ---
 
@@ -229,9 +241,9 @@ Volt's **primary** `Token.estimate()` (`util/token.ts:5`) uses `Math.round()`, n
 
 ## MISSING FEATURES (8 issues)
 
-### M1 [MEDIUM] ExpandSummaryToMessages: Go recursion vs Volt's recursive CTE
+### M1 [MEDIUM] ExpandSummaryToMessages: Go recursion vs Volt's recursive CTE **[CORRECTED]**
 
-**Crush:** `retrieval.go:19-59` — Go-level recursion with N+1 SQL calls per DAG node (2 queries per node: `ExpandSummaryToMessages` + `GetSummaryParentIDs`).
+**Crush:** `retrieval.go:19-59` — Go-level recursion with **2 SQL calls per DAG node** (one `ExpandSummaryToMessages` to check for leaf messages, one `GetSummaryParentIDs` to get parents). For a DAG with N total nodes, this is **2N queries**.
 
 **Volt:** `db.ts:1368-1399` — Single `WITH RECURSIVE` CTE:
 ```sql
@@ -248,30 +260,30 @@ leaf_messages AS (
 SELECT ... FROM leaf_messages lm JOIN messages m ON ...
 ```
 
-**Impact:** For a DAG with depth D and branching B, Crush makes O(B^D) queries; Volt makes 1.
+**Impact:** For a DAG with N nodes, Crush makes 2N queries; Volt makes 1. (Original report incorrectly stated "N+1 per node" — it is 2 per node, not N+1.)
 
 ---
 
-### M2 [MEDIUM] GetMessagesByIDs / GetSummariesByIDs: N+1 queries
+### M2 [MEDIUM] GetMessagesByIDs / GetSummariesByIDs: N+1 queries **[CORRECTED]**
 
 **Crush:** `store.go:150-151` — Loops one-by-one with comment: "sqlc doesn't support sqlc.slice for SQLite"
 
-**Volt:** `db.ts:859-877` — Uses `ANY()` for batch retrieval:
+**Volt:** Does **not** have a direct `GetMessagesByIDs` batch equivalent — its single-message lookups (`getMessage` at `db.ts:1457`, `getSummaryById` at `db.ts:1333`) are also single-ID. However, Volt does use `ANY()` for batch retrieval where it matters, e.g. `getMessagePartsForMessages` (`db.ts:859-877`):
 ```typescript
 SELECT * FROM message_parts WHERE message_id = ANY(${messageIds})
 ```
 
-**Impact:** Performance degrades linearly with number of IDs.
+**Impact:** Crush's N+1 loop is confirmed. Volt uses batch `ANY()` in analogous spots. The pattern difference is real, though the specific function names differ between the two codebases.
 
 ---
 
-### M3 [MEDIUM] Regex search: full-table scan vs CTE-scoped
+### M3 [MEDIUM] Regex search: session-wide Go filter vs CTE-scoped DB filter **[CORRECTED]**
 
-**Crush:** `store.go:542-576` — Fetches all session messages, applies Go `regexp` in application code.
+**Crush:** `store.go:537-576` — Fetches all messages for the session (filtered by `session_id` in SQL), then applies Go `regexp.MatchString` in application code. This is a **full-session scan**, not a full-table scan (the original report's "full-table scan" was imprecise).
 
-**Volt:** `db.ts:1562-1583` — Uses recursive CTE to scope regex search to messages within a summary's DAG, all in one query.
+**Volt:** `db.ts:1557-1591` — When a `summaryId` is provided, uses recursive CTE to scope search to messages within that summary's DAG, with PostgreSQL-native `~` regex operator for server-side filtering. Without `summaryId` (`db.ts:1594-1612`), still uses `~` for DB-side regex.
 
-**Impact:** Crush scans the entire session; Volt scopes to the relevant summary subtree.
+**Impact:** Crush streams all session messages to Go for filtering; Volt pushes regex evaluation to the database and can optionally scope to a summary subtree.
 
 ---
 
@@ -307,7 +319,7 @@ Volt carries parent IDs inline on the domain object for programmatic access (e.g
 | XML | `application/xml`, `text/xml` | `*/*+xml` subtypes, SVG |
 | CSV | `text/csv` | `text/tab-separated-values` |
 | HTML | `text/html` | `application/xhtml+xml` |
-| Executable | `application/x-executable`, `x-elf`, `x-mach-binary`, `x-dosexec` | `application/x-sharedlib` |
+| Executable | `application/x-executable`, `x-elf`, `x-mach-binary`, `x-dosexec` | `application/x-sharedlib`, `x-object`, `wasm`, `vnd.microsoft.portable-executable` |
 
 ---
 
@@ -326,12 +338,26 @@ Volt carries parent IDs inline on the domain object for programmatic access (e.g
 | Category | HIGH | MEDIUM | LOW | Total |
 |----------|------|--------|-----|-------|
 | Bugs | 1 | 4 | 0 | **5** |
-| Divergences | 1 | 4 | 4 | **9** |
+| Divergences | 0 | 4 | 5 | **9** |
 | Missing | 0 | 5 | 3 | **8** |
-| **Total** | **2** | **13** | **7** | **22** |
+| **Total** | **1** | **13** | **8** | **22** |
 
 ### Top 3 priorities
 
 1. **B1** — Fix compaction target (HIGH). Change `TargetFreePercent = 0` to match Volt's actual behavior.
-2. **D1** — Decide on file ID strategy (HIGH divergence). Content-addressed (Volt) vs metadata-addressed (Crush) is a fundamental design choice.
-3. **B2+B3** — Fix escalation behavior to match Volt: propagate API errors instead of escalating, remove MaxTokens hard caps.
+2. **B2+B3** — Fix escalation behavior to match Volt: propagate API errors instead of escalating, remove MaxTokens hard caps.
+3. **B4** — Fix ImageExplorer to exclude `image/svg+xml` and remove `.svg` from extension list.
+
+---
+
+## Double-check corrections applied
+
+| Finding | Original claim | Correction |
+|---------|---------------|------------|
+| **D1** | "Volt hashes file content; fundamentally different strategy" → **HIGH** | Volt's active `generateFileIdFromPath` (`db.ts:1637`) also hashes metadata. Old content-hashing is `@deprecated`. Downgraded to **LOW** — just separator (`:` vs `\|`) and timestamp precision (ms vs s) differences. |
+| **M1** | "N+1 SQL calls per DAG node" | Corrected to "2 SQL calls per DAG node" (one ExpandSummaryToMessages + one GetSummaryParentIDs). |
+| **M2** | "Volt uses batch ANY() for GetMessagesByIDs" | Volt's `ANY()` is used in `getMessagePartsForMessages`, not a direct `GetMessagesByIDs` equivalent. Crush's N+1 loop is still confirmed. |
+| **M3** | "full-table scan" | Corrected to "full-session scan" (SQL does filter by `session_id`). |
+| **B4** | (no change to claim) | Added detail: Crush's extension switch also lists `.svg`, compounding the issue. |
+| **B5** | (no change to claim) | Added: also missing Python extensions `.pyi`, `.pyw`, `.pyx`, `.pxd`. |
+| **M7** | (no change to claim) | Added: also missing executable types `x-object`, `wasm`, `vnd.microsoft.portable-executable`. |
