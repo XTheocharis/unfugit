@@ -1081,6 +1081,408 @@ func (m *mockStore) GetLlmMapItemsByStatus(_ context.Context, _, _ string) ([]lc
 	return nil, nil
 }
 
+// ============================================================================
+// Phase 8: Model-aware reserve computation tests (SC-5)
+// ============================================================================
+
+func TestComputeTokenBudget_ModelOutputLimit(t *testing.T) {
+	// When modelOutputLimit < default reserve, it should reduce reserve.
+	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil, 5000)
+	if budget.Reserve != 5000 {
+		t.Errorf("Reserve = %d, want 5000 (model output limit)", budget.Reserve)
+	}
+	// HardLimit should increase since reserve decreased.
+	expected := 128_000 - 3000 - 5000
+	if budget.HardLimit != expected {
+		t.Errorf("HardLimit = %d, want %d", budget.HardLimit, expected)
+	}
+}
+
+func TestComputeTokenBudget_ModelOutputLimitLargerThanDefault(t *testing.T) {
+	// When modelOutputLimit > default reserve, keep the default (don't increase).
+	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil, 50000)
+	if budget.Reserve != 20_000 {
+		t.Errorf("Reserve = %d, want 20000 (default, since 50000 > 20000)", budget.Reserve)
+	}
+}
+
+func TestComputeTokenBudget_ModelOutputLimitZero(t *testing.T) {
+	// modelOutputLimit of 0 should be ignored.
+	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil, 0)
+	if budget.Reserve != 20_000 {
+		t.Errorf("Reserve = %d, want 20000 (zero should be ignored)", budget.Reserve)
+	}
+}
+
+// ============================================================================
+// Phase 8: Content-based summary ID generation tests (SC-2, E3)
+// ============================================================================
+
+func TestGenerateSummaryID_ContentBased(t *testing.T) {
+	// Different content should produce different IDs
+	id1 := lcm.GenerateSummaryIDExported("content A")
+	id2 := lcm.GenerateSummaryIDExported("content B")
+
+	if id1 == id2 {
+		t.Error("different content should produce different IDs")
+	}
+	if !strings.HasPrefix(id1, "sum_") {
+		t.Errorf("expected sum_ prefix, got: %s", id1)
+	}
+	if len(id1) != 4+16 {
+		t.Errorf("expected 20 chars (sum_ + 16 hex), got %d: %s", len(id1), id1)
+	}
+}
+
+func TestGenerateSummaryID_TimestampVariance(t *testing.T) {
+	// Same content at different times should produce different IDs
+	// (because timestamp is included in the hash)
+	id1 := lcm.GenerateSummaryIDExported("same content")
+	time.Sleep(2 * time.Millisecond) // ensure different UnixMilli
+	id2 := lcm.GenerateSummaryIDExported("same content")
+
+	if id1 == id2 {
+		t.Error("same content at different times should produce different IDs due to timestamp")
+	}
+}
+
+func TestGenerateCondensedID_SamePattern(t *testing.T) {
+	// generateCondensedID should produce a valid sum_ prefixed ID (E3)
+	id := lcm.GenerateCondensedIDExported("condensed content")
+	if !strings.HasPrefix(id, "sum_") {
+		t.Errorf("condensed ID should have sum_ prefix, got: %s", id)
+	}
+	if len(id) != 4+16 {
+		t.Errorf("expected 20 chars, got %d: %s", len(id), id)
+	}
+}
+
+// ============================================================================
+// Phase 8: FormatLargeFileForContext hint line test (E9)
+// ============================================================================
+
+func TestFormatLargeFileForContext_HintLine(t *testing.T) {
+	f := &lcm.LargeFile{
+		FileID:       "file_aaaaaaaaaaaaaaaa",
+		OriginalPath: "/path/to/file.txt",
+		MimeType:     "text/plain",
+		TokenCount:   50000,
+	}
+	result := lcm.FormatLargeFileForContext(f)
+	if !strings.Contains(result, "(File content stored externally - use file ID to retrieve)") {
+		t.Errorf("should contain external storage hint (E9), got:\n%s", result)
+	}
+	if !strings.Contains(result, "file_aaaaaaaaaaaaaaaa") {
+		t.Errorf("should contain file ID, got:\n%s", result)
+	}
+}
+
+func TestFormatLargeFileForContext_WithExploration(t *testing.T) {
+	f := &lcm.LargeFile{
+		FileID:             "file_bbbbbbbbbbbbbbbb",
+		OriginalPath:       "/path/to/code.go",
+		MimeType:           "text/x-go",
+		TokenCount:         30000,
+		ExplorationSummary: "Contains 5 functions...",
+		ExplorerUsed:       "go",
+	}
+	result := lcm.FormatLargeFileForContext(f)
+	if !strings.Contains(result, "File content stored externally") {
+		t.Errorf("should contain hint even with exploration, got:\n%s", result)
+	}
+	if !strings.Contains(result, "[Explored by: go]") {
+		t.Errorf("should contain explorer info, got:\n%s", result)
+	}
+	if !strings.Contains(result, "Contains 5 functions") {
+		t.Errorf("should contain exploration summary, got:\n%s", result)
+	}
+}
+
+// ============================================================================
+// Phase 8: Pre-computed token_count preference test (E12)
+// ============================================================================
+
+func TestMockStore_PrecomputedTokenCount(t *testing.T) {
+	// Verify that messages with pre-computed token counts are respected
+	store := &mockStore{
+		messages: []lcm.LCMMessage{
+			{ID: "m1", SessionID: "s1", Role: "user", Content: "short", TokenCount: 999},
+		},
+	}
+	msgs, err := store.GetMessagesByIDs(context.Background(), []string{"m1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[0].TokenCount != 999 {
+		t.Errorf("expected pre-computed token count 999, got %d", msgs[0].TokenCount)
+	}
+}
+
+// ============================================================================
+// Phase 8: GetSummaryFormattingOverhead tests
+// ============================================================================
+
+func TestGetSummaryFormattingOverhead(t *testing.T) {
+	// Leaf summary with no parents should have minimal overhead
+	overhead := lcm.GetSummaryFormattingOverhead("sum_aaaaaaaaaaaaaaaa", nil)
+	if overhead < 5 {
+		t.Errorf("overhead for leaf should be > 5 tokens, got %d", overhead)
+	}
+
+	// Condensed summary with parents should have higher overhead
+	parents := []string{"sum_parent01aaaaaaa", "sum_parent02bbbbbbb"}
+	condensedOverhead := lcm.GetSummaryFormattingOverhead("sum_aaaaaaaaaaaaaaaa", parents)
+	if condensedOverhead <= overhead {
+		t.Errorf("condensed overhead (%d) should exceed leaf overhead (%d)", condensedOverhead, overhead)
+	}
+}
+
+// ============================================================================
+// Phase 8: Explorer tests for new explorer types
+// ============================================================================
+
+func TestGoExplorer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	content := `package main
+
+import "fmt"
+
+type MyStruct struct {
+	Name string
+}
+
+func main() {
+	fmt.Println("hello")
+}
+
+func helper(x int) int {
+	return x + 1
+}
+`
+	os.WriteFile(path, []byte(content), 0o644)
+	registry := lcm.NewExplorerRegistry()
+	result, err := registry.Explore(context.Background(), path, "text/x-go", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "go" {
+		t.Errorf("expected explorer 'go', got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestPythonExplorer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "script.py")
+	content := `import os
+import sys
+
+class Foo:
+    def bar(self):
+        pass
+
+def main():
+    print("hello")
+`
+	os.WriteFile(path, []byte(content), 0o644)
+	registry := lcm.NewExplorerRegistry()
+	result, err := registry.Explore(context.Background(), path, "text/x-python", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "python" {
+		t.Errorf("expected explorer 'python', got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestJSONExplorer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data.json")
+	content := `{"name": "test", "items": [1, 2, 3], "nested": {"key": "value"}}`
+	os.WriteFile(path, []byte(content), 0o644)
+	registry := lcm.NewExplorerRegistry()
+	result, err := registry.Explore(context.Background(), path, "application/json", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "json" {
+		t.Errorf("expected explorer 'json', got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestCSVExplorer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data.csv")
+	content := "name,age,city\nAlice,30,NYC\nBob,25,SF\n"
+	os.WriteFile(path, []byte(content), 0o644)
+	registry := lcm.NewExplorerRegistry()
+	result, err := registry.Explore(context.Background(), path, "text/csv", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "csv" {
+		t.Errorf("expected explorer 'csv', got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestMarkdownExplorer(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := "# Title\n\n## Section 1\n\nSome content.\n\n## Section 2\n\nMore content.\n"
+	os.WriteFile(path, []byte(content), 0o644)
+	registry := lcm.NewExplorerRegistry()
+	result, err := registry.Explore(context.Background(), path, "text/markdown", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExplorerUsed != "markdown" {
+		t.Errorf("expected explorer 'markdown', got '%s'", result.ExplorerUsed)
+	}
+}
+
+func TestExplorerRegistry_ExplorerUsedSetByRegistry(t *testing.T) {
+	// Verify that ExplorerUsed is set by the registry (E8)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("hello world"), 0o644)
+	registry := lcm.NewExplorerRegistry()
+	result, err := registry.Explore(context.Background(), path, "text/plain", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	// TextExplorer is the catch-all for text/* types.
+	// Registry should set ExplorerUsed to "text" via e.Name().
+	if result.ExplorerUsed != "text" {
+		t.Errorf("ExplorerUsed should be set by registry, got '%s'", result.ExplorerUsed)
+	}
+}
+
+// ============================================================================
+// Phase 8: Map run lifecycle tests
+// ============================================================================
+
+func TestAgenticMapManager_CreateRun(t *testing.T) {
+	store := &mockStore{}
+	manager := lcm.NewAgenticMapManager(store)
+	mapID, err := manager.CreateRun(context.Background(), lcm.MapRunConfig{
+		InputPath:   "/input",
+		Prompt:      "analyze this",
+		Concurrency: 2,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(mapID, "map_") {
+		t.Errorf("expected map_ prefix, got: %s", mapID)
+	}
+}
+
+func TestLlmMapManager_CreateRun(t *testing.T) {
+	store := &mockStore{}
+	client := &mockLLMClient{responses: []string{"result"}}
+	manager := lcm.NewLlmMapManager(store, client)
+	mapID, err := manager.CreateRun(context.Background(), lcm.LlmMapRunConfig{
+		InputPath: "/input",
+		Prompt:    "summarize",
+		Model:     "test-model",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(mapID, "map_") {
+		t.Errorf("expected map_ prefix, got: %s", mapID)
+	}
+}
+
+// ============================================================================
+// Phase 8: Exploration cache tests
+// ============================================================================
+
+func TestExploreFile_CacheHit(t *testing.T) {
+	cached := &lcm.ExplorationResult{
+		Summary:      "cached summary",
+		TokenCount:   10,
+		ExplorerUsed: "go",
+	}
+	store := &mockStoreWithCache{
+		mockStore: mockStore{},
+		cached:    cached,
+	}
+	l := &lcm.LCM{
+		Store:            store,
+		ExplorerRegistry: lcm.NewExplorerRegistry(),
+	}
+	result, err := l.ExploreFile(context.Background(), "file_aaaaaaaaaaaaaaaa", "/some/path.go", "text/x-go", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Summary != "cached summary" {
+		t.Errorf("expected cached summary, got: %s", result.Summary)
+	}
+}
+
+func TestExploreFile_CacheMiss(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, []byte("hello"), 0o644)
+
+	store := &mockStoreWithCache{
+		mockStore: mockStore{},
+		cached:    nil, // cache miss
+	}
+	l := &lcm.LCM{
+		Store:            store,
+		ExplorerRegistry: lcm.NewExplorerRegistry(),
+	}
+	result, err := l.ExploreFile(context.Background(), "file_bbbbbbbbbbbbbbbb", path, "text/plain", 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected exploration result on cache miss")
+	}
+	if !store.setCalled {
+		t.Error("expected SetLargeFileExploration to be called for caching")
+	}
+}
+
+// mockStoreWithCache wraps mockStore with cache behavior for exploration tests.
+type mockStoreWithCache struct {
+	mockStore
+	cached    *lcm.ExplorationResult
+	setCalled bool
+}
+
+func (m *mockStoreWithCache) GetLargeFileExploration(_ context.Context, _ string) (*lcm.ExplorationResult, error) {
+	if m.cached != nil {
+		return m.cached, nil
+	}
+	return nil, fmt.Errorf("not cached")
+}
+
+func (m *mockStoreWithCache) SetLargeFileExploration(_ context.Context, _ string, _ *lcm.ExplorationResult) error {
+	m.setCalled = true
+	return nil
+}
+
 // mockSummarizer for compaction tests
 type mockSummarizer struct {
 	tokenReduction int64

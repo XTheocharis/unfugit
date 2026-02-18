@@ -63,7 +63,13 @@ FROM (
     LEFT JOIN messages m ON m.id = ci.message_id
     WHERE ci.session_id = ? AND ci.item_type = 'message'
 ) sub
-WHERE sub.running_tokens <= ?;
+WHERE sub.running_tokens <= ?
+   OR sub.position = (SELECT MIN(sub2.position) FROM (
+       SELECT ci2.position
+       FROM lcm_context_items ci2
+       WHERE ci2.session_id = ? AND ci2.item_type = 'message'
+   ) sub2)
+ORDER BY sub.position;
 
 -- name: LCMGetOldestSummariesInContext :many
 SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id

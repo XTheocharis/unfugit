@@ -83,16 +83,21 @@ func (s *SQLiteStore) GetContextTokenCount(ctx context.Context, sessionID string
 
 	// Add summary formatting overhead (SQ-21): the SQL query returns raw token counts
 	// but Volt includes the [Summary ID: ...] and [Parent Summaries: ...] headers.
-	// Query the number of summaries and add a per-summary overhead estimate.
-	summaryCount, err := s.q.LCMCountSummariesInContext(ctx, sessionID)
+	// Iterate context entries and compute actual per-summary overhead using parent IDs.
+	entries, err := s.q.LCMGetCurrentContext(ctx, sessionID)
 	if err != nil {
 		return rawTotal, nil // Fall back to raw total on error
 	}
-	// Each summary has at least "[Summary ID: sum_xxxxxxxxxxxxxxxx]\n\n" ≈ 10 tokens overhead.
-	// Condensed summaries also have "[Parent Summaries: sum_xxx, sum_yyy]\n" adding more.
-	// Use a conservative per-summary estimate of 10 tokens.
-	const perSummaryOverhead = 10
-	return rawTotal + int(summaryCount)*perSummaryOverhead, nil
+	for _, entry := range entries {
+		if entry.ItemType == "summary" && entry.SummaryID.Valid {
+			parents, pErr := s.q.LCMGetSummaryParentIDs(ctx, entry.SummaryID.String)
+			if pErr != nil {
+				continue
+			}
+			rawTotal += GetSummaryFormattingOverhead(entry.SummaryID.String, parents)
+		}
+	}
+	return rawTotal, nil
 }
 
 func (s *SQLiteStore) ReplacePositionsWithSummary(ctx context.Context, sessionID string, positions []int, summaryID string) error {

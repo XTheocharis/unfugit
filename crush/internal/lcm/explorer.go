@@ -105,7 +105,14 @@ func (r *ExplorerRegistry) RegisterLLMExplorer(client LLMClient, model string) {
 func (r *ExplorerRegistry) Explore(ctx context.Context, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
 	for _, e := range r.explorers {
 		if e.CanExplore(path, mimeType) {
-			return e.Explore(ctx, path, mimeType, maxTokens)
+			result, err := e.Explore(ctx, path, mimeType, maxTokens)
+			if err != nil {
+				return nil, err
+			}
+			if result != nil {
+				result.ExplorerUsed = e.Name()
+			}
+			return result, nil
 		}
 	}
 	return nil, nil

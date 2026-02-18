@@ -14,6 +14,8 @@ type LCM struct {
 	Summarizer        Summarizer
 	CompactionManager *CompactionManager
 	ExplorerRegistry  *ExplorerRegistry
+	AgenticMapManager *AgenticMapManager
+	LlmMapManager     *LlmMapManager
 	DefaultBudgetFunc func(sessionID string) (TokenBudget, error)
 }
 
@@ -25,7 +27,6 @@ func NewLCM(
 	llmClient LLMClient,
 	model string,
 	prompts Prompts,
-	budgetFunc func(sessionID string) (TokenBudget, error),
 ) *LCM {
 	store := NewSQLiteStore(queries, sqlDB)
 	summarizer := NewEscalationSummarizer(llmClient, model, prompts)
@@ -35,13 +36,28 @@ func NewLCM(
 	if llmClient != nil {
 		registry.RegisterLLMExplorer(llmClient, model)
 	}
+	agenticMap := NewAgenticMapManager(store)
+	llmMap := NewLlmMapManager(store, llmClient)
 
 	return &LCM{
 		Store:             store,
 		Summarizer:        summarizer,
 		CompactionManager: compactionMgr,
 		ExplorerRegistry:  registry,
-		DefaultBudgetFunc: budgetFunc,
+		AgenticMapManager: agenticMap,
+		LlmMapManager:     llmMap,
+		DefaultBudgetFunc: func(sessionID string) (TokenBudget, error) {
+			config, err := store.GetSessionConfig(context.Background(), sessionID)
+			if err != nil {
+				// No config stored — use sensible defaults.
+				return ComputeTokenBudget(128_000, 0, 0, nil), nil
+			}
+			return ComputeTokenBudget(
+				int(config.ModelCtxMaxTokens),
+				0, 0,
+				config.CtxCutoffThreshold,
+			), nil
+		},
 	}
 }
 
@@ -95,6 +111,16 @@ func (l *LCM) Search(ctx context.Context, sessionID string, query string, limit 
 	return SearchSummaries(ctx, l.Store, sessionID, query, limit)
 }
 
+// SearchMessages performs full-text search across session messages.
+func (l *LCM) SearchMessages(ctx context.Context, sessionID string, query string, limit int) ([]LCMMessage, error) {
+	return l.Store.SearchMessages(ctx, sessionID, query, limit)
+}
+
+// SearchMessagesRegex performs regex-based search across session messages.
+func (l *LCM) SearchMessagesRegex(ctx context.Context, sessionID string, pattern string, limit int) ([]LCMMessage, error) {
+	return l.Store.SearchMessagesRegex(ctx, sessionID, pattern, limit)
+}
+
 // ExploreFile explores a large file using the explorer registry, with caching.
 func (l *LCM) ExploreFile(ctx context.Context, fileID string, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
 	// Check cache first
@@ -121,4 +147,14 @@ func (l *LCM) ExploreFile(ctx context.Context, fileID string, path string, mimeT
 	}
 
 	return result, nil
+}
+
+// CreateAgenticMapRun creates a new agentic map run from the given config.
+func (l *LCM) CreateAgenticMapRun(ctx context.Context, config MapRunConfig) (string, error) {
+	return l.AgenticMapManager.CreateRun(ctx, config)
+}
+
+// CreateLlmMapRun creates a new LLM map run from the given config.
+func (l *LCM) CreateLlmMapRun(ctx context.Context, config LlmMapRunConfig) (string, error) {
+	return l.LlmMapManager.CreateRun(ctx, config)
 }

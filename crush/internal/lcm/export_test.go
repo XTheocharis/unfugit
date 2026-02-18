@@ -11,3 +11,13 @@ func ExtractFileIDsExported(content string) []string {
 func EscNullExported(s string) string {
 	return escNull(s)
 }
+
+// GenerateSummaryIDExported wraps the unexported generateSummaryID for testing.
+func GenerateSummaryIDExported(content string) string {
+	return generateSummaryID(content)
+}
+
+// GenerateCondensedIDExported wraps the unexported generateCondensedID for testing.
+func GenerateCondensedIDExported(content string) string {
+	return generateCondensedID(content)
+}

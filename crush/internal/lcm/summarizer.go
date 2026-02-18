@@ -193,7 +193,7 @@ func (s *EscalationSummarizer) condenseNormal(
 	content := EnsureParentIDsPresent(response.Text, parentIDs)
 	content = appendFileIDMarkers(content, fileIDs)
 	return &Summary{
-		SummaryID:  generateSummaryID(content),
+		SummaryID:  generateCondensedID(content),
 		SessionID:  summaries[0].SessionID,
 		Kind:       SummaryKindCondensed,
 		Content:    content,
@@ -219,7 +219,7 @@ func (s *EscalationSummarizer) condenseAggressive(
 	content := EnsureParentIDsPresent(response.Text, parentIDs)
 	content = appendFileIDMarkers(content, fileIDs)
 	return &Summary{
-		SummaryID:  generateSummaryID(content),
+		SummaryID:  generateCondensedID(content),
 		SessionID:  summaries[0].SessionID,
 		Kind:       SummaryKindCondensed,
 		Content:    content,
@@ -250,7 +250,7 @@ func (s *EscalationSummarizer) condenseFallback(
 
 	finalContent := truncated + "\n" + metadata.String()
 	return &Summary{
-		SummaryID:  generateSummaryID(finalContent),
+		SummaryID:  generateCondensedID(finalContent),
 		SessionID:  originalSummaries[0].SessionID,
 		Kind:       SummaryKindCondensed,
 		Content:    finalContent,
@@ -284,6 +284,12 @@ func generateSummaryID(content string) string {
 	fmt.Fprintf(h, "%s%d", content, time.Now().UnixMilli())
 	hash := hex.EncodeToString(h.Sum(nil))
 	return SummaryIDPrefix + hash[:SummaryIDLength]
+}
+
+// generateCondensedID creates an ID for condensed summaries using the same
+// content + timestamp pattern as generateSummaryID (E3).
+func generateCondensedID(content string) string {
+	return generateSummaryID(content)
 }
 
 func calculateInputTokens(messages []LCMMessage) int64 {

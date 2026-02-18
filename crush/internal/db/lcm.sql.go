@@ -304,6 +304,12 @@ FROM (
     WHERE ci.session_id = ? AND ci.item_type = 'message'
 ) sub
 WHERE sub.running_tokens <= ?
+   OR sub.position = (SELECT MIN(sub2.position) FROM (
+       SELECT ci2.position
+       FROM lcm_context_items ci2
+       WHERE ci2.session_id = ? AND ci2.item_type = 'message'
+   ) sub2)
+ORDER BY sub.position
 `
 
 type LCMGetMessagesToSummarizeByTokenBudgetParams struct {
@@ -319,7 +325,7 @@ type LCMGetMessagesToSummarizeByTokenBudgetRow struct {
 }
 
 func (q *Queries) LCMGetMessagesToSummarizeByTokenBudget(ctx context.Context, arg LCMGetMessagesToSummarizeByTokenBudgetParams) ([]LCMGetMessagesToSummarizeByTokenBudgetRow, error) {
-	rows, err := q.query(ctx, q.lCMGetMessagesToSummarizeByTokenBudgetStmt, lCMGetMessagesToSummarizeByTokenBudget, arg.SessionID, arg.TokenBudget)
+	rows, err := q.query(ctx, q.lCMGetMessagesToSummarizeByTokenBudgetStmt, lCMGetMessagesToSummarizeByTokenBudget, arg.SessionID, arg.TokenBudget, arg.SessionID)
 	if err != nil {
 		return nil, err
 	}

@@ -96,7 +96,7 @@ func ComputeTokenBudget(
 	// Phase 3.3: If a model-specific output limit is provided, use it for reserve.
 	// Otherwise fall back to min(20000, contextWindow/4).
 	reserve := min(DefaultOutputReserve, contextWindow/4)
-	if len(modelOutputLimit) > 0 && modelOutputLimit[0] > 0 {
+	if len(modelOutputLimit) > 0 && modelOutputLimit[0] > 0 && modelOutputLimit[0] < reserve {
 		reserve = modelOutputLimit[0]
 	}
 
