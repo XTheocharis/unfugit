@@ -140,9 +140,14 @@ type partData struct {
 }
 
 // FormatLargeFileForContext returns the marker string for large file references.
+// E9: includes exploration hint when an exploration summary is available.
 func FormatLargeFileForContext(f *LargeFile) string {
-	return fmt.Sprintf("[Large File Stored: %s]\n[Path: %s]\n[Type: %s]\n[Tokens: %d]",
+	base := fmt.Sprintf("[Large File Stored: %s]\n[Path: %s]\n[Type: %s]\n[Tokens: %d]",
 		f.FileID, f.OriginalPath, f.MimeType, f.TokenCount)
+	if f.ExplorationSummary != "" {
+		base += fmt.Sprintf("\n[Explored by: %s]\n%s", f.ExplorerUsed, f.ExplorationSummary)
+	}
+	return base
 }
 
 // FormatLargeUserTextForContext is the marker for inline user text stored as a large file.

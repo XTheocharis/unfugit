@@ -7,7 +7,7 @@ SELECT
     COALESCE(m.role, 'summary') AS role,
     COALESCE(m.parts, s.content) AS content,
     CASE
-        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+        WHEN ci.item_type = 'message' THEN COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4)
         ELSE COALESCE(s.token_count, 0)
     END AS token_count,
     COALESCE(s.kind, '') AS summary_kind
@@ -20,7 +20,7 @@ ORDER BY ci.position;
 -- name: LCMGetContextTokenCount :one
 SELECT COALESCE(SUM(
     CASE
-        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+        WHEN ci.item_type = 'message' THEN COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4)
         WHEN ci.item_type = 'summary' THEN s.token_count
         ELSE 0
     END
@@ -51,6 +51,20 @@ WHERE ci.session_id = ? AND ci.item_type = 'message'
 ORDER BY ci.position
 LIMIT ?;
 
+-- name: LCMGetMessagesToSummarizeByTokenBudget :many
+-- Token-budget windowed selection: returns oldest messages whose cumulative
+-- token count fits within the given budget (Phase 3.2, E1 ceiling division).
+SELECT sub.position, sub.item_type, sub.message_id, sub.summary_id
+FROM (
+    SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id,
+           SUM(COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4))
+               OVER (ORDER BY ci.position) AS running_tokens
+    FROM lcm_context_items ci
+    LEFT JOIN messages m ON m.id = ci.message_id
+    WHERE ci.session_id = ? AND ci.item_type = 'message'
+) sub
+WHERE sub.running_tokens <= ?;
+
 -- name: LCMGetOldestSummariesInContext :many
 SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id
 FROM lcm_context_items ci
@@ -80,12 +94,14 @@ SELECT parent_summary_id FROM lcm_summary_parents
 WHERE summary_id = ? ORDER BY ord;
 
 -- name: LCMGetMessageByID :one
-SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
+SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at,
+       COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4) AS token_count
 FROM messages m
 WHERE m.id = ?;
 
 -- name: LCMExpandSummaryToMessages :many
-SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
+SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at,
+       COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4) AS token_count
 FROM lcm_summary_messages sm
 JOIN messages m ON m.id = sm.message_id
 WHERE sm.summary_id = ?
@@ -100,7 +116,17 @@ VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(file_id) DO NOTHING;
 
 -- name: LCMGetLargeFile :one
-SELECT file_id, session_id, original_path, mime_type, token_count, created_at
+SELECT file_id, session_id, original_path, mime_type, token_count, created_at,
+       exploration_summary, explorer_used
+FROM lcm_large_files WHERE file_id = ?;
+
+-- name: LCMUpdateLargeFileExploration :exec
+UPDATE lcm_large_files
+SET exploration_summary = ?, explorer_used = ?
+WHERE file_id = ?;
+
+-- name: LCMGetLargeFileExploration :one
+SELECT exploration_summary, explorer_used
 FROM lcm_large_files WHERE file_id = ?;
 
 -- ============================================================================
@@ -161,8 +187,6 @@ ON CONFLICT(session_id) DO UPDATE SET
 -- ============================================================================
 -- DB-27: getAncestorConversationIds — find session IDs from the original
 -- messages that a summary (or its ancestors) was built from.
--- In Crush, all messages within a session share the same session_id, but
--- summaries can reference messages from parent sessions via session forking.
 -- ============================================================================
 -- name: LCMGetSummaryMessageSessionIDs :many
 SELECT DISTINCT m.session_id

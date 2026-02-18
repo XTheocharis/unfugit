@@ -159,6 +159,63 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lCMGetSummaryMessageSessionIDsStmt, err = db.PrepareContext(ctx, lCMGetSummaryMessageSessionIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query LCMGetSummaryMessageSessionIDs: %w", err)
 	}
+	if q.lCMGetMessagesToSummarizeByTokenBudgetStmt, err = db.PrepareContext(ctx, lCMGetMessagesToSummarizeByTokenBudget); err != nil {
+		return nil, fmt.Errorf("error preparing query LCMGetMessagesToSummarizeByTokenBudget: %w", err)
+	}
+	if q.lCMUpdateLargeFileExplorationStmt, err = db.PrepareContext(ctx, lCMUpdateLargeFileExploration); err != nil {
+		return nil, fmt.Errorf("error preparing query LCMUpdateLargeFileExploration: %w", err)
+	}
+	if q.lCMGetLargeFileExplorationStmt, err = db.PrepareContext(ctx, lCMGetLargeFileExploration); err != nil {
+		return nil, fmt.Errorf("error preparing query LCMGetLargeFileExploration: %w", err)
+	}
+	if q.insertMessagePartStmt, err = db.PrepareContext(ctx, insertMessagePart); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertMessagePart: %w", err)
+	}
+	if q.getMessagePartsByMessageIDStmt, err = db.PrepareContext(ctx, getMessagePartsByMessageID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMessagePartsByMessageID: %w", err)
+	}
+	if q.getMessagePartsByTypeStmt, err = db.PrepareContext(ctx, getMessagePartsByType); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMessagePartsByType: %w", err)
+	}
+	if q.deleteMessagePartsByMessageIDStmt, err = db.PrepareContext(ctx, deleteMessagePartsByMessageID); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMessagePartsByMessageID: %w", err)
+	}
+	if q.createAgenticMapRunStmt, err = db.PrepareContext(ctx, createAgenticMapRun); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateAgenticMapRun: %w", err)
+	}
+	if q.getAgenticMapRunStmt, err = db.PrepareContext(ctx, getAgenticMapRun); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAgenticMapRun: %w", err)
+	}
+	if q.updateAgenticMapRunStatusStmt, err = db.PrepareContext(ctx, updateAgenticMapRunStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateAgenticMapRunStatus: %w", err)
+	}
+	if q.createAgenticMapItemStmt, err = db.PrepareContext(ctx, createAgenticMapItem); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateAgenticMapItem: %w", err)
+	}
+	if q.updateAgenticMapItemStmt, err = db.PrepareContext(ctx, updateAgenticMapItem); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateAgenticMapItem: %w", err)
+	}
+	if q.getAgenticMapItemsByStatusStmt, err = db.PrepareContext(ctx, getAgenticMapItemsByStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAgenticMapItemsByStatus: %w", err)
+	}
+	if q.createLlmMapRunStmt, err = db.PrepareContext(ctx, createLlmMapRun); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateLlmMapRun: %w", err)
+	}
+	if q.getLlmMapRunStmt, err = db.PrepareContext(ctx, getLlmMapRun); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLlmMapRun: %w", err)
+	}
+	if q.updateLlmMapRunStatusStmt, err = db.PrepareContext(ctx, updateLlmMapRunStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateLlmMapRunStatus: %w", err)
+	}
+	if q.createLlmMapItemStmt, err = db.PrepareContext(ctx, createLlmMapItem); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateLlmMapItem: %w", err)
+	}
+	if q.updateLlmMapItemStmt, err = db.PrepareContext(ctx, updateLlmMapItem); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateLlmMapItem: %w", err)
+	}
+	if q.getLlmMapItemsByStatusStmt, err = db.PrepareContext(ctx, getLlmMapItemsByStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLlmMapItemsByStatus: %w", err)
+	}
 	if q.listAllUserMessagesStmt, err = db.PrepareContext(ctx, listAllUserMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAllUserMessages: %w", err)
 	}
@@ -428,6 +485,101 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lCMGetSummaryMessageSessionIDsStmt: %w", cerr)
 		}
 	}
+	if q.lCMGetMessagesToSummarizeByTokenBudgetStmt != nil {
+		if cerr := q.lCMGetMessagesToSummarizeByTokenBudgetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lCMGetMessagesToSummarizeByTokenBudgetStmt: %w", cerr)
+		}
+	}
+	if q.lCMUpdateLargeFileExplorationStmt != nil {
+		if cerr := q.lCMUpdateLargeFileExplorationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lCMUpdateLargeFileExplorationStmt: %w", cerr)
+		}
+	}
+	if q.lCMGetLargeFileExplorationStmt != nil {
+		if cerr := q.lCMGetLargeFileExplorationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lCMGetLargeFileExplorationStmt: %w", cerr)
+		}
+	}
+	if q.insertMessagePartStmt != nil {
+		if cerr := q.insertMessagePartStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertMessagePartStmt: %w", cerr)
+		}
+	}
+	if q.getMessagePartsByMessageIDStmt != nil {
+		if cerr := q.getMessagePartsByMessageIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMessagePartsByMessageIDStmt: %w", cerr)
+		}
+	}
+	if q.getMessagePartsByTypeStmt != nil {
+		if cerr := q.getMessagePartsByTypeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMessagePartsByTypeStmt: %w", cerr)
+		}
+	}
+	if q.deleteMessagePartsByMessageIDStmt != nil {
+		if cerr := q.deleteMessagePartsByMessageIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMessagePartsByMessageIDStmt: %w", cerr)
+		}
+	}
+	if q.createAgenticMapRunStmt != nil {
+		if cerr := q.createAgenticMapRunStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createAgenticMapRunStmt: %w", cerr)
+		}
+	}
+	if q.getAgenticMapRunStmt != nil {
+		if cerr := q.getAgenticMapRunStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAgenticMapRunStmt: %w", cerr)
+		}
+	}
+	if q.updateAgenticMapRunStatusStmt != nil {
+		if cerr := q.updateAgenticMapRunStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateAgenticMapRunStatusStmt: %w", cerr)
+		}
+	}
+	if q.createAgenticMapItemStmt != nil {
+		if cerr := q.createAgenticMapItemStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createAgenticMapItemStmt: %w", cerr)
+		}
+	}
+	if q.updateAgenticMapItemStmt != nil {
+		if cerr := q.updateAgenticMapItemStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateAgenticMapItemStmt: %w", cerr)
+		}
+	}
+	if q.getAgenticMapItemsByStatusStmt != nil {
+		if cerr := q.getAgenticMapItemsByStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAgenticMapItemsByStatusStmt: %w", cerr)
+		}
+	}
+	if q.createLlmMapRunStmt != nil {
+		if cerr := q.createLlmMapRunStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createLlmMapRunStmt: %w", cerr)
+		}
+	}
+	if q.getLlmMapRunStmt != nil {
+		if cerr := q.getLlmMapRunStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLlmMapRunStmt: %w", cerr)
+		}
+	}
+	if q.updateLlmMapRunStatusStmt != nil {
+		if cerr := q.updateLlmMapRunStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateLlmMapRunStatusStmt: %w", cerr)
+		}
+	}
+	if q.createLlmMapItemStmt != nil {
+		if cerr := q.createLlmMapItemStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createLlmMapItemStmt: %w", cerr)
+		}
+	}
+	if q.updateLlmMapItemStmt != nil {
+		if cerr := q.updateLlmMapItemStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateLlmMapItemStmt: %w", cerr)
+		}
+	}
+	if q.getLlmMapItemsByStatusStmt != nil {
+		if cerr := q.getLlmMapItemsByStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLlmMapItemsByStatusStmt: %w", cerr)
+		}
+	}
 	if q.listAllUserMessagesStmt != nil {
 		if cerr := q.listAllUserMessagesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listAllUserMessagesStmt: %w", cerr)
@@ -576,8 +728,29 @@ type Queries struct {
 	lCMDeleteSummaryStmt                   *sql.Stmt
 	lCMGetSessionConfigStmt                *sql.Stmt
 	lCMUpsertSessionConfigStmt             *sql.Stmt
-	lCMGetSummaryMessageSessionIDsStmt     *sql.Stmt
-	listAllUserMessagesStmt                *sql.Stmt
+	lCMGetSummaryMessageSessionIDsStmt             *sql.Stmt
+	lCMGetMessagesToSummarizeByTokenBudgetStmt     *sql.Stmt
+	lCMUpdateLargeFileExplorationStmt              *sql.Stmt
+	lCMGetLargeFileExplorationStmt                 *sql.Stmt
+	insertMessagePartStmt                          *sql.Stmt
+	getMessagePartsByMessageIDStmt                 *sql.Stmt
+	getMessagePartsByTypeStmt                      *sql.Stmt
+	deleteMessagePartsByMessageIDStmt              *sql.Stmt
+	createAgenticMapRunStmt                        *sql.Stmt
+	getAgenticMapRunStmt                           *sql.Stmt
+	updateAgenticMapRunStatusStmt                  *sql.Stmt
+	createAgenticMapItemStmt                       *sql.Stmt
+	updateAgenticMapItemStmt                       *sql.Stmt
+	getAgenticMapItemStmt                          *sql.Stmt
+	getAgenticMapItemsByStatusStmt                 *sql.Stmt
+	createLlmMapRunStmt                            *sql.Stmt
+	getLlmMapRunStmt                               *sql.Stmt
+	updateLlmMapRunStatusStmt                      *sql.Stmt
+	createLlmMapItemStmt                           *sql.Stmt
+	updateLlmMapItemStmt                           *sql.Stmt
+	getLlmMapItemStmt                              *sql.Stmt
+	getLlmMapItemsByStatusStmt                     *sql.Stmt
+	listAllUserMessagesStmt                        *sql.Stmt
 	listFilesByPathStmt                *sql.Stmt
 	listFilesBySessionStmt             *sql.Stmt
 	listLatestSessionFilesStmt         *sql.Stmt
@@ -640,8 +813,29 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lCMDeleteSummaryStmt:                   q.lCMDeleteSummaryStmt,
 		lCMGetSessionConfigStmt:                q.lCMGetSessionConfigStmt,
 		lCMUpsertSessionConfigStmt:             q.lCMUpsertSessionConfigStmt,
-		lCMGetSummaryMessageSessionIDsStmt:     q.lCMGetSummaryMessageSessionIDsStmt,
-		listAllUserMessagesStmt:                q.listAllUserMessagesStmt,
+		lCMGetSummaryMessageSessionIDsStmt:             q.lCMGetSummaryMessageSessionIDsStmt,
+		lCMGetMessagesToSummarizeByTokenBudgetStmt:     q.lCMGetMessagesToSummarizeByTokenBudgetStmt,
+		lCMUpdateLargeFileExplorationStmt:              q.lCMUpdateLargeFileExplorationStmt,
+		lCMGetLargeFileExplorationStmt:                 q.lCMGetLargeFileExplorationStmt,
+		insertMessagePartStmt:                          q.insertMessagePartStmt,
+		getMessagePartsByMessageIDStmt:                 q.getMessagePartsByMessageIDStmt,
+		getMessagePartsByTypeStmt:                      q.getMessagePartsByTypeStmt,
+		deleteMessagePartsByMessageIDStmt:              q.deleteMessagePartsByMessageIDStmt,
+		createAgenticMapRunStmt:                        q.createAgenticMapRunStmt,
+		getAgenticMapRunStmt:                           q.getAgenticMapRunStmt,
+		updateAgenticMapRunStatusStmt:                  q.updateAgenticMapRunStatusStmt,
+		createAgenticMapItemStmt:                       q.createAgenticMapItemStmt,
+		updateAgenticMapItemStmt:                       q.updateAgenticMapItemStmt,
+		getAgenticMapItemStmt:                          q.getAgenticMapItemStmt,
+		getAgenticMapItemsByStatusStmt:                 q.getAgenticMapItemsByStatusStmt,
+		createLlmMapRunStmt:                            q.createLlmMapRunStmt,
+		getLlmMapRunStmt:                               q.getLlmMapRunStmt,
+		updateLlmMapRunStatusStmt:                      q.updateLlmMapRunStatusStmt,
+		createLlmMapItemStmt:                           q.createLlmMapItemStmt,
+		updateLlmMapItemStmt:                           q.updateLlmMapItemStmt,
+		getLlmMapItemStmt:                              q.getLlmMapItemStmt,
+		getLlmMapItemsByStatusStmt:                     q.getLlmMapItemsByStatusStmt,
+		listAllUserMessagesStmt:                        q.listAllUserMessagesStmt,
 		listFilesByPathStmt:                q.listFilesByPathStmt,
 		listFilesBySessionStmt:             q.listFilesBySessionStmt,
 		listLatestSessionFilesStmt:         q.listLatestSessionFilesStmt,

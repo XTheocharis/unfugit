@@ -79,15 +79,27 @@ type TokenBudget struct {
 	ToolToks         int
 }
 
+// DefaultOutputReserve is the default reserve for model output tokens.
+const DefaultOutputReserve = 20_000
+
 // ComputeTokenBudget calculates absolute token thresholds from model parameters.
+// Phase 3.3: Added modelOutputLimit parameter for model-aware reserve.
 func ComputeTokenBudget(
 	contextWindow int,
 	systemPromptToks int,
 	toolToks int,
 	softThresholdOverride *int,
+	modelOutputLimit ...int,
 ) TokenBudget {
 	overhead := systemPromptToks + toolToks
-	reserve := min(20_000, contextWindow/4)
+
+	// Phase 3.3: If a model-specific output limit is provided, use it for reserve.
+	// Otherwise fall back to min(20000, contextWindow/4).
+	reserve := min(DefaultOutputReserve, contextWindow/4)
+	if len(modelOutputLimit) > 0 && modelOutputLimit[0] > 0 {
+		reserve = modelOutputLimit[0]
+	}
+
 	hardLimit := contextWindow - overhead - reserve
 
 	softRaw := contextWindow * DefaultCtxCutoffPercent / 100

@@ -2,7 +2,10 @@ package lcm
 
 import (
 	"context"
+	"database/sql"
 	"log"
+
+	"github.com/charmbracelet/crush/internal/db"
 )
 
 // LCM is the top-level coordinator that Crush's agent loop calls.
@@ -10,7 +13,36 @@ type LCM struct {
 	Store             Store
 	Summarizer        Summarizer
 	CompactionManager *CompactionManager
+	ExplorerRegistry  *ExplorerRegistry
 	DefaultBudgetFunc func(sessionID string) (TokenBudget, error)
+}
+
+// NewLCM creates a fully-wired LCM instance (E10, E15).
+// E15: param renamed from db to sqlDB to avoid shadowing the db package.
+func NewLCM(
+	sqlDB *sql.DB,
+	queries *db.Queries,
+	llmClient LLMClient,
+	model string,
+	prompts Prompts,
+	budgetFunc func(sessionID string) (TokenBudget, error),
+) *LCM {
+	store := NewSQLiteStore(queries, sqlDB)
+	summarizer := NewEscalationSummarizer(llmClient, model, prompts)
+	eventBus := NewChannelEventBus(16)
+	compactionMgr := NewCompactionManager(eventBus)
+	registry := NewExplorerRegistry()
+	if llmClient != nil {
+		registry.RegisterLLMExplorer(llmClient, model)
+	}
+
+	return &LCM{
+		Store:             store,
+		Summarizer:        summarizer,
+		CompactionManager: compactionMgr,
+		ExplorerRegistry:  registry,
+		DefaultBudgetFunc: budgetFunc,
+	}
 }
 
 // AfterMessageAppended should be called after a new message is added to
@@ -61,4 +93,32 @@ func (l *LCM) Expand(ctx context.Context, summaryID string) ([]LCMMessage, error
 // Search performs full-text search across session summaries.
 func (l *LCM) Search(ctx context.Context, sessionID string, query string, limit int) ([]Summary, error) {
 	return SearchSummaries(ctx, l.Store, sessionID, query, limit)
+}
+
+// ExploreFile explores a large file using the explorer registry, with caching.
+func (l *LCM) ExploreFile(ctx context.Context, fileID string, path string, mimeType string, maxTokens int) (*ExplorationResult, error) {
+	// Check cache first
+	cached, err := l.Store.GetLargeFileExploration(ctx, fileID)
+	if err == nil && cached != nil {
+		return cached, nil
+	}
+
+	// Run exploration
+	if l.ExplorerRegistry == nil {
+		return nil, nil
+	}
+	result, err := l.ExplorerRegistry.Explore(ctx, path, mimeType, maxTokens)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, nil
+	}
+
+	// Cache the result
+	if cacheErr := l.Store.SetLargeFileExploration(ctx, fileID, result); cacheErr != nil {
+		log.Printf("Failed to cache exploration for %s: %v", fileID, cacheErr)
+	}
+
+	return result, nil
 }

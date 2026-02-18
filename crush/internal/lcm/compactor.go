@@ -74,13 +74,22 @@ func (c *Compactor) summarizeMessagesOnce(
 	sessionID string,
 	budget TokenBudget,
 ) error {
-	// Use a reasonable row limit, not the token budget. SoftThreshold is a token
-	// count (e.g., 76800), not a row count -- passing it as LIMIT would return all messages.
-	const maxMessagesPerRound = 50
-	messagesToSummarize, err := c.store.GetMessagesToSummarize(ctx, sessionID, maxMessagesPerRound)
-	if err != nil {
-		return err
+	// Phase 3.2: Primary strategy — token-budget windowed selection.
+	// Uses a window function query to select messages fitting within a token budget.
+	tokenBudget := budget.SoftThreshold / 2 // summarize up to half the soft threshold
+	if tokenBudget < 1000 {
+		tokenBudget = 1000
 	}
+	messagesToSummarize, err := c.store.GetMessagesToSummarizeByTokenBudget(ctx, sessionID, tokenBudget)
+	if err != nil {
+		// Fallback to row-limit approach if windowed query fails (e.g., old SQLite without window functions)
+		log.Printf("Token-budget windowed selection failed, falling back to row limit: %v", err)
+		messagesToSummarize, err = c.store.GetMessagesToSummarize(ctx, sessionID, 50)
+		if err != nil {
+			return err
+		}
+	}
+
 	if len(messagesToSummarize) < MinMessagesToSummarize {
 		return fmt.Errorf("not enough messages to summarize (got %d, need %d)",
 			len(messagesToSummarize), MinMessagesToSummarize)
@@ -118,7 +127,16 @@ func (c *Compactor) condenseSummariesOnce(
 	ctx context.Context,
 	sessionID string,
 ) error {
-	summariesToCondense, err := c.store.GetOldestSummariesInContext(ctx, sessionID, 5)
+	// Phase 4.1: Condense ALL summaries in context, not just oldest 5.
+	// First count to know total, then fetch all.
+	summaryCount, err := c.store.CountSummariesInContext(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if summaryCount < 1 {
+		return fmt.Errorf("no summaries available to condense")
+	}
+	summariesToCondense, err := c.store.GetOldestSummariesInContext(ctx, sessionID, summaryCount)
 	if err != nil {
 		return err
 	}

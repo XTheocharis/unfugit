@@ -60,7 +60,8 @@ func (q *Queries) LCMCountSummariesInContext(ctx context.Context, sessionID stri
 }
 
 const lCMExpandSummaryToMessages = `-- name: LCMExpandSummaryToMessages :many
-SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
+SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at,
+       COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4) AS token_count
 FROM lcm_summary_messages sm
 JOIN messages m ON m.id = sm.message_id
 WHERE sm.summary_id = ?
@@ -68,11 +69,12 @@ ORDER BY sm.ord
 `
 
 type LCMExpandSummaryToMessagesRow struct {
-	ID        string `json:"id"`
-	SessionID string `json:"session_id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	CreatedAt int64  `json:"created_at"`
+	ID         string `json:"id"`
+	SessionID  string `json:"session_id"`
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	CreatedAt  int64  `json:"created_at"`
+	TokenCount int64  `json:"token_count"`
 }
 
 func (q *Queries) LCMExpandSummaryToMessages(ctx context.Context, summaryID string) ([]LCMExpandSummaryToMessagesRow, error) {
@@ -90,6 +92,7 @@ func (q *Queries) LCMExpandSummaryToMessages(ctx context.Context, summaryID stri
 			&i.Role,
 			&i.Content,
 			&i.CreatedAt,
+			&i.TokenCount,
 		); err != nil {
 			return nil, err
 		}
@@ -107,7 +110,7 @@ func (q *Queries) LCMExpandSummaryToMessages(ctx context.Context, summaryID stri
 const lCMGetContextTokenCount = `-- name: LCMGetContextTokenCount :one
 SELECT COALESCE(SUM(
     CASE
-        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+        WHEN ci.item_type = 'message' THEN COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4)
         WHEN ci.item_type = 'summary' THEN s.token_count
         ELSE 0
     END
@@ -134,7 +137,7 @@ SELECT
     COALESCE(m.role, 'summary') AS role,
     COALESCE(m.parts, s.content) AS content,
     CASE
-        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
+        WHEN ci.item_type = 'message' THEN COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4)
         ELSE COALESCE(s.token_count, 0)
     END AS token_count,
     COALESCE(s.kind, '') AS summary_kind
@@ -189,7 +192,8 @@ func (q *Queries) LCMGetCurrentContext(ctx context.Context, sessionID string) ([
 }
 
 const lCMGetLargeFile = `-- name: LCMGetLargeFile :one
-SELECT file_id, session_id, original_path, mime_type, token_count, created_at
+SELECT file_id, session_id, original_path, mime_type, token_count, created_at,
+       exploration_summary, explorer_used
 FROM lcm_large_files WHERE file_id = ?
 `
 
@@ -203,22 +207,26 @@ func (q *Queries) LCMGetLargeFile(ctx context.Context, fileID string) (LcmLargeF
 		&i.MimeType,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ExplorationSummary,
+		&i.ExplorerUsed,
 	)
 	return i, err
 }
 
 const lCMGetMessageByID = `-- name: LCMGetMessageByID :one
-SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
+SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at,
+       COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4) AS token_count
 FROM messages m
 WHERE m.id = ?
 `
 
 type LCMGetMessageByIDRow struct {
-	ID        string `json:"id"`
-	SessionID string `json:"session_id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	CreatedAt int64  `json:"created_at"`
+	ID         string `json:"id"`
+	SessionID  string `json:"session_id"`
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	CreatedAt  int64  `json:"created_at"`
+	TokenCount int64  `json:"token_count"`
 }
 
 func (q *Queries) LCMGetMessageByID(ctx context.Context, id string) (LCMGetMessageByIDRow, error) {
@@ -230,6 +238,7 @@ func (q *Queries) LCMGetMessageByID(ctx context.Context, id string) (LCMGetMessa
 		&i.Role,
 		&i.Content,
 		&i.CreatedAt,
+		&i.TokenCount,
 	)
 	return i, err
 }
@@ -280,6 +289,101 @@ func (q *Queries) LCMGetMessagesToSummarize(ctx context.Context, arg LCMGetMessa
 		return nil, err
 	}
 	return items, nil
+}
+
+// --- Phase 3.2: Token-budget windowed selection ---
+
+const lCMGetMessagesToSummarizeByTokenBudget = `-- name: LCMGetMessagesToSummarizeByTokenBudget :many
+SELECT sub.position, sub.item_type, sub.message_id, sub.summary_id
+FROM (
+    SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id,
+           SUM(COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4))
+               OVER (ORDER BY ci.position) AS running_tokens
+    FROM lcm_context_items ci
+    LEFT JOIN messages m ON m.id = ci.message_id
+    WHERE ci.session_id = ? AND ci.item_type = 'message'
+) sub
+WHERE sub.running_tokens <= ?
+`
+
+type LCMGetMessagesToSummarizeByTokenBudgetParams struct {
+	SessionID   string `json:"session_id"`
+	TokenBudget int64  `json:"token_budget"`
+}
+
+type LCMGetMessagesToSummarizeByTokenBudgetRow struct {
+	Position  int64          `json:"position"`
+	ItemType  string         `json:"item_type"`
+	MessageID sql.NullString `json:"message_id"`
+	SummaryID sql.NullString `json:"summary_id"`
+}
+
+func (q *Queries) LCMGetMessagesToSummarizeByTokenBudget(ctx context.Context, arg LCMGetMessagesToSummarizeByTokenBudgetParams) ([]LCMGetMessagesToSummarizeByTokenBudgetRow, error) {
+	rows, err := q.query(ctx, q.lCMGetMessagesToSummarizeByTokenBudgetStmt, lCMGetMessagesToSummarizeByTokenBudget, arg.SessionID, arg.TokenBudget)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LCMGetMessagesToSummarizeByTokenBudgetRow{}
+	for rows.Next() {
+		var i LCMGetMessagesToSummarizeByTokenBudgetRow
+		if err := rows.Scan(
+			&i.Position,
+			&i.ItemType,
+			&i.MessageID,
+			&i.SummaryID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// --- Exploration cache queries (Phase 5.2) ---
+
+const lCMUpdateLargeFileExploration = `-- name: LCMUpdateLargeFileExploration :exec
+UPDATE lcm_large_files
+SET exploration_summary = ?, explorer_used = ?
+WHERE file_id = ?
+`
+
+type LCMUpdateLargeFileExplorationParams struct {
+	ExplorationSummary sql.NullString `json:"exploration_summary"`
+	ExplorerUsed       sql.NullString `json:"explorer_used"`
+	FileID             string         `json:"file_id"`
+}
+
+func (q *Queries) LCMUpdateLargeFileExploration(ctx context.Context, arg LCMUpdateLargeFileExplorationParams) error {
+	_, err := q.exec(ctx, q.lCMUpdateLargeFileExplorationStmt, lCMUpdateLargeFileExploration,
+		arg.ExplorationSummary,
+		arg.ExplorerUsed,
+		arg.FileID,
+	)
+	return err
+}
+
+const lCMGetLargeFileExploration = `-- name: LCMGetLargeFileExploration :one
+SELECT exploration_summary, explorer_used
+FROM lcm_large_files WHERE file_id = ?
+`
+
+type LCMGetLargeFileExplorationRow struct {
+	ExplorationSummary sql.NullString `json:"exploration_summary"`
+	ExplorerUsed       sql.NullString `json:"explorer_used"`
+}
+
+func (q *Queries) LCMGetLargeFileExploration(ctx context.Context, fileID string) (LCMGetLargeFileExplorationRow, error) {
+	row := q.queryRow(ctx, q.lCMGetLargeFileExplorationStmt, lCMGetLargeFileExploration, fileID)
+	var i LCMGetLargeFileExplorationRow
+	err := row.Scan(&i.ExplorationSummary, &i.ExplorerUsed)
+	return i, err
 }
 
 const lCMGetOldestSummariesInContext = `-- name: LCMGetOldestSummariesInContext :many
@@ -522,8 +626,8 @@ LIMIT 1
 `
 
 type LCMGetCoveringSummaryForMessagesParams struct {
-	SessionID    string `json:"session_id"`
-	MinMessages  int64  `json:"min_messages"`
+	SessionID   string `json:"session_id"`
+	MinMessages int64  `json:"min_messages"`
 }
 
 func (q *Queries) LCMGetCoveringSummaryForMessages(ctx context.Context, arg LCMGetCoveringSummaryForMessagesParams) (LCMGetSummaryByIDRow, error) {

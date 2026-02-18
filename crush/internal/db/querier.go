@@ -49,6 +49,32 @@ type Querier interface {
 	LCMInsertSummary(ctx context.Context, arg LCMInsertSummaryParams) error
 	LCMInsertSummaryMessage(ctx context.Context, arg LCMInsertSummaryMessageParams) error
 	LCMInsertSummaryParent(ctx context.Context, arg LCMInsertSummaryParentParams) error
+	LCMGetChildSummaryIDs(ctx context.Context, parentSummaryID string) ([]string, error)
+	LCMGetCoveringSummaryForMessages(ctx context.Context, arg LCMGetCoveringSummaryForMessagesParams) (LCMGetSummaryByIDRow, error)
+	LCMGetAllSummaries(ctx context.Context, sessionID string) ([]LCMGetSummaryByIDRow, error)
+	LCMDeleteSummary(ctx context.Context, summaryID string) error
+	LCMGetSessionConfig(ctx context.Context, sessionID string) (LcmSessionConfig, error)
+	LCMUpsertSessionConfig(ctx context.Context, arg LCMUpsertSessionConfigParams) error
+	LCMGetSummaryMessageSessionIDs(ctx context.Context, summaryID string) ([]string, error)
+	LCMGetMessagesToSummarizeByTokenBudget(ctx context.Context, arg LCMGetMessagesToSummarizeByTokenBudgetParams) ([]LCMGetMessagesToSummarizeByTokenBudgetRow, error)
+	LCMUpdateLargeFileExploration(ctx context.Context, arg LCMUpdateLargeFileExplorationParams) error
+	LCMGetLargeFileExploration(ctx context.Context, fileID string) (LCMGetLargeFileExplorationRow, error)
+	InsertMessagePart(ctx context.Context, arg InsertMessagePartParams) error
+	GetMessagePartsByMessageID(ctx context.Context, messageID string) ([]MessagePart, error)
+	GetMessagePartsByType(ctx context.Context, arg GetMessagePartsByTypeParams) ([]MessagePart, error)
+	DeleteMessagePartsByMessageID(ctx context.Context, messageID string) error
+	CreateAgenticMapRun(ctx context.Context, arg CreateAgenticMapRunParams) error
+	GetAgenticMapRun(ctx context.Context, mapID string) (AgenticMapRun, error)
+	UpdateAgenticMapRunStatus(ctx context.Context, arg UpdateAgenticMapRunStatusParams) error
+	CreateAgenticMapItem(ctx context.Context, arg CreateAgenticMapItemParams) error
+	UpdateAgenticMapItem(ctx context.Context, arg UpdateAgenticMapItemParams) error
+	GetAgenticMapItemsByStatus(ctx context.Context, arg GetAgenticMapItemsByStatusParams) ([]AgenticMapItem, error)
+	CreateLlmMapRun(ctx context.Context, arg CreateLlmMapRunParams) error
+	GetLlmMapRun(ctx context.Context, mapID string) (LlmMapRun, error)
+	UpdateLlmMapRunStatus(ctx context.Context, arg UpdateLlmMapRunStatusParams) error
+	CreateLlmMapItem(ctx context.Context, arg CreateLlmMapItemParams) error
+	UpdateLlmMapItem(ctx context.Context, arg UpdateLlmMapItemParams) error
+	GetLlmMapItemsByStatus(ctx context.Context, arg GetLlmMapItemsByStatusParams) ([]LlmMapItem, error)
 	ListAllUserMessages(ctx context.Context) ([]Message, error)
 	ListFilesByPath(ctx context.Context, path string) ([]File, error)
 	ListFilesBySession(ctx context.Context, sessionID string) ([]File, error)

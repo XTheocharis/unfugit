@@ -691,13 +691,13 @@ func TestCheckAndStoreLargeFile_SmallFile(t *testing.T) {
 // ============================================================================
 
 func TestCompactContext_Convergence(t *testing.T) {
-	store := newMockStoreForCompaction([]int{200, 150, 100, 50})
-	summarizer := &mockSummarizer{tokenReduction: 50}
+	// budget target = softThreshold * 75 / 100 = 73800 * 75 / 100 = 55350
+	// Start above target, decrease each round until below target.
+	store := newMockStoreForCompaction([]int{80000, 60000, 40000, 20000})
+	summarizer := &mockSummarizer{tokenReduction: 20000}
 	compactor := lcm.NewCompactor(store, summarizer)
 
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
-	// target = softThreshold * 75 / 100 = 73800 * 75 / 100 = 55350
-	// Store starts at 200 tokens, above target. After each round, reduces by 50.
 	rounds, err := compactor.CompactContext(context.Background(), "s1", budget)
 	if err != nil {
 		t.Fatalf("compaction should converge, got error: %v", err)
@@ -708,8 +708,9 @@ func TestCompactContext_Convergence(t *testing.T) {
 }
 
 func TestCompactContext_NoProgress(t *testing.T) {
-	// Token count never decreases — should error
-	store := newMockStoreForCompaction([]int{200, 200, 200})
+	// Token count never decreases — should error.
+	// Start above target (55350) and stay there.
+	store := newMockStoreForCompaction([]int{80000, 80000, 80000})
 	summarizer := &mockSummarizer{tokenReduction: 0}
 	compactor := lcm.NewCompactor(store, summarizer)
 
@@ -731,8 +732,8 @@ func TestScheduleCompaction_DuplicateRejected(t *testing.T) {
 	bus := lcm.NoOpEventBus{}
 	manager := lcm.NewCompactionManager(bus)
 
-	store := newMockStoreForCompaction([]int{200, 50}) // converges in 1 round
-	summarizer := &mockSummarizer{tokenReduction: 150}
+	store := newMockStoreForCompaction([]int{80000, 40000}) // converges in 1 round
+	summarizer := &mockSummarizer{tokenReduction: 40000}
 	compactor := lcm.NewCompactor(store, summarizer)
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
 
@@ -757,8 +758,8 @@ func TestScheduleCompaction_EventBusPublishes(t *testing.T) {
 	bus := lcm.NewChannelEventBus(10)
 	manager := lcm.NewCompactionManager(bus)
 
-	store := newMockStoreForCompaction([]int{200, 50})
-	summarizer := &mockSummarizer{tokenReduction: 150}
+	store := newMockStoreForCompaction([]int{80000, 40000})
+	summarizer := &mockSummarizer{tokenReduction: 40000}
 	compactor := lcm.NewCompactor(store, summarizer)
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
 
@@ -783,10 +784,16 @@ func TestExplorerRegistry_TextExplorer(t *testing.T) {
 	registry := lcm.NewExplorerRegistry()
 	names := registry.ListExplorers()
 	if len(names) == 0 {
-		t.Fatal("registry should have at least the text explorer")
+		t.Fatal("registry should have at least one explorer")
 	}
-	if names[0] != "text" {
-		t.Errorf("first explorer should be 'text', got %s", names[0])
+	// With the full explorer set, the first explorer is 'go' (most specific),
+	// and 'text' + 'fallback' are the last two (catch-alls).
+	if names[0] != "go" {
+		t.Errorf("first explorer should be 'go', got %s", names[0])
+	}
+	lastTwo := names[len(names)-2:]
+	if lastTwo[0] != "text" || lastTwo[1] != "fallback" {
+		t.Errorf("last two explorers should be [text, fallback], got %v", lastTwo)
 	}
 }
 
@@ -813,13 +820,18 @@ func TestTextExplorer_Explore(t *testing.T) {
 }
 
 func TestExplorerRegistry_UnknownMIME(t *testing.T) {
+	// With the FallbackExplorer, all MIME types are handled.
+	// The fallback explorer returns a non-nil result with a hex dump.
 	registry := lcm.NewExplorerRegistry()
 	result, err := registry.Explore(context.Background(), "/dev/null", "video/mp4", 1000)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != nil {
-		t.Error("expected nil result for unsupported MIME type")
+	if result == nil {
+		t.Fatal("expected non-nil result from fallback explorer")
+	}
+	if result.ExplorerUsed != "fallback" {
+		t.Errorf("expected fallback explorer, got %s", result.ExplorerUsed)
 	}
 }
 
@@ -871,8 +883,8 @@ func TestChannelEventBus_DropOnFull(t *testing.T) {
 
 func TestCompactContext_ReplacesPositions(t *testing.T) {
 	// Verify that compaction calls ReplacePositionsWithSummary
-	store := newMockStoreForCompaction([]int{200, 50})
-	summarizer := &mockSummarizer{tokenReduction: 150}
+	store := newMockStoreForCompaction([]int{80000, 40000})
+	summarizer := &mockSummarizer{tokenReduction: 40000}
 	compactor := lcm.NewCompactor(store, summarizer)
 	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
 
@@ -1029,6 +1041,45 @@ func (m *mockStore) GetSessionConfig(_ context.Context, _ string) (*lcm.SessionC
 }
 
 func (m *mockStore) SetSessionConfig(_ context.Context, _ *lcm.SessionConfig) error { return nil }
+
+// Phase 3.2 (E24): Token-budget windowed selection
+func (m *mockStore) GetMessagesToSummarizeByTokenBudget(_ context.Context, _ string, _ int) ([]lcm.ContextEntry, error) {
+	// Delegate to GetMessagesToSummarize for test simplicity
+	return m.GetMessagesToSummarize(context.Background(), "", 50)
+}
+
+// Phase 5.2 (E24): Exploration cache
+func (m *mockStore) GetLargeFileExploration(_ context.Context, _ string) (*lcm.ExplorationResult, error) {
+	return nil, fmt.Errorf("not cached")
+}
+
+func (m *mockStore) SetLargeFileExploration(_ context.Context, _ string, _ *lcm.ExplorationResult) error {
+	return nil
+}
+
+// Phase 6 (E24): Agentic map operations
+func (m *mockStore) CreateAgenticMapRun(_ context.Context, _ *lcm.AgenticMapRun) error   { return nil }
+func (m *mockStore) GetAgenticMapRun(_ context.Context, _ string) (*lcm.AgenticMapRun, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateAgenticMapRunStatus(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) CreateAgenticMapItem(_ context.Context, _ *lcm.AgenticMapItem) error { return nil }
+func (m *mockStore) UpdateAgenticMapItem(_ context.Context, _ *lcm.AgenticMapItem) error { return nil }
+func (m *mockStore) GetAgenticMapItemsByStatus(_ context.Context, _, _ string) ([]lcm.AgenticMapItem, error) {
+	return nil, nil
+}
+
+// Phase 6 (E24): LLM map operations
+func (m *mockStore) CreateLlmMapRun(_ context.Context, _ *lcm.LlmMapRun) error   { return nil }
+func (m *mockStore) GetLlmMapRun(_ context.Context, _ string) (*lcm.LlmMapRun, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateLlmMapRunStatus(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) CreateLlmMapItem(_ context.Context, _ *lcm.LlmMapItem) error { return nil }
+func (m *mockStore) UpdateLlmMapItem(_ context.Context, _ *lcm.LlmMapItem) error { return nil }
+func (m *mockStore) GetLlmMapItemsByStatus(_ context.Context, _, _ string) ([]lcm.LlmMapItem, error) {
+	return nil, nil
+}
 
 // mockSummarizer for compaction tests
 type mockSummarizer struct {

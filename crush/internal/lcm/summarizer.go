@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // EscalationSummarizer implements three-level escalation for summarization.
@@ -84,7 +85,7 @@ func (s *EscalationSummarizer) summarizeNormal(
 	fileIDs := extractFileIDs(formattedInput)
 	content := appendFileIDMarkers(response.Text, fileIDs)
 	return &Summary{
-		SummaryID:  generateSummaryID(messages),
+		SummaryID:  generateSummaryID(content),
 		SessionID:  messages[0].SessionID,
 		Kind:       SummaryKindLeaf,
 		Content:    content,
@@ -109,7 +110,7 @@ func (s *EscalationSummarizer) summarizeAggressive(
 	fileIDs := extractFileIDs(formattedInput)
 	content := appendFileIDMarkers(response.Text, fileIDs)
 	return &Summary{
-		SummaryID:  generateSummaryID(messages),
+		SummaryID:  generateSummaryID(content),
 		SessionID:  messages[0].SessionID,
 		Kind:       SummaryKindLeaf,
 		Content:    content,
@@ -138,7 +139,7 @@ func (s *EscalationSummarizer) summarizeFallback(
 
 	finalContent := truncated + metadata.String()
 	return &Summary{
-		SummaryID:  generateSummaryID(originalMessages),
+		SummaryID:  generateSummaryID(finalContent),
 		SessionID:  originalMessages[0].SessionID,
 		Kind:       SummaryKindLeaf,
 		Content:    finalContent,
@@ -192,7 +193,7 @@ func (s *EscalationSummarizer) condenseNormal(
 	content := EnsureParentIDsPresent(response.Text, parentIDs)
 	content = appendFileIDMarkers(content, fileIDs)
 	return &Summary{
-		SummaryID:  generateCondensedID(summaries),
+		SummaryID:  generateSummaryID(content),
 		SessionID:  summaries[0].SessionID,
 		Kind:       SummaryKindCondensed,
 		Content:    content,
@@ -218,7 +219,7 @@ func (s *EscalationSummarizer) condenseAggressive(
 	content := EnsureParentIDsPresent(response.Text, parentIDs)
 	content = appendFileIDMarkers(content, fileIDs)
 	return &Summary{
-		SummaryID:  generateCondensedID(summaries),
+		SummaryID:  generateSummaryID(content),
 		SessionID:  summaries[0].SessionID,
 		Kind:       SummaryKindCondensed,
 		Content:    content,
@@ -249,7 +250,7 @@ func (s *EscalationSummarizer) condenseFallback(
 
 	finalContent := truncated + "\n" + metadata.String()
 	return &Summary{
-		SummaryID:  generateCondensedID(originalSummaries),
+		SummaryID:  generateSummaryID(finalContent),
 		SessionID:  originalSummaries[0].SessionID,
 		Kind:       SummaryKindCondensed,
 		Content:    finalContent,
@@ -275,20 +276,12 @@ func EnsureParentIDsPresent(content string, parentIDs []string) string {
 	return content
 }
 
-func generateSummaryID(messages []LCMMessage) string {
+// generateSummaryID creates a summary ID from output content + timestamp (SC-2, E3).
+// Phase 4.2: Changed from hashing input messages to hashing output content,
+// matching Volt's behavior where the same messages can produce different summaries.
+func generateSummaryID(content string) string {
 	h := sha256.New()
-	for _, msg := range messages {
-		fmt.Fprintf(h, "%d|%s|%s", msg.CreatedAt, msg.Role, msg.Content)
-	}
-	hash := hex.EncodeToString(h.Sum(nil))
-	return SummaryIDPrefix + hash[:SummaryIDLength]
-}
-
-func generateCondensedID(summaries []Summary) string {
-	h := sha256.New()
-	for _, summary := range summaries {
-		h.Write([]byte(summary.SummaryID))
-	}
+	fmt.Fprintf(h, "%s%d", content, time.Now().UnixMilli())
 	hash := hex.EncodeToString(h.Sum(nil))
 	return SummaryIDPrefix + hash[:SummaryIDLength]
 }

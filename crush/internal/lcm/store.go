@@ -150,16 +150,49 @@ func (s *SQLiteStore) GetMessagesByIDs(ctx context.Context, ids []string) ([]LCM
 		if err != nil {
 			return nil, fmt.Errorf("failed to get message %s: %w", id, err)
 		}
+		// E12: prefer pre-computed token_count from DB, fallback to estimation
+		tokenCount := int(row.TokenCount)
+		if tokenCount == 0 {
+			tokenCount = EstimateTokenCount(row.Content)
+		}
 		messages = append(messages, LCMMessage{
 			ID:         row.ID,
 			SessionID:  row.SessionID,
 			CreatedAt:  row.CreatedAt,
 			Role:       row.Role,
 			Content:    row.Content,
-			TokenCount: EstimateTokenCount(row.Content),
+			TokenCount: tokenCount,
 		})
 	}
 	return messages, nil
+}
+
+// GetMessagesToSummarizeByTokenBudget returns oldest messages fitting within a token budget (Phase 3.2).
+func (s *SQLiteStore) GetMessagesToSummarizeByTokenBudget(ctx context.Context, sessionID string, tokenBudget int) ([]ContextEntry, error) {
+	rows, err := s.q.LCMGetMessagesToSummarizeByTokenBudget(ctx, db.LCMGetMessagesToSummarizeByTokenBudgetParams{
+		SessionID:   sessionID,
+		TokenBudget: int64(tokenBudget),
+	})
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]ContextEntry, len(rows))
+	for i, row := range rows {
+		var msgID, sumID *string
+		if row.MessageID.Valid {
+			msgID = &row.MessageID.String
+		}
+		if row.SummaryID.Valid {
+			sumID = &row.SummaryID.String
+		}
+		entries[i] = ContextEntry{
+			Position:  int(row.Position),
+			ItemType:  row.ItemType,
+			MessageID: msgID,
+			SummaryID: sumID,
+		}
+	}
+	return entries, nil
 }
 
 func (s *SQLiteStore) CountMessagesInContext(ctx context.Context, sessionID string) (int, error) {
@@ -307,13 +340,18 @@ func (s *SQLiteStore) ExpandSummaryToMessages(ctx context.Context, summaryID str
 	}
 	messages := make([]LCMMessage, len(rows))
 	for i, row := range rows {
+		// E12: prefer pre-computed token_count from DB
+		tokenCount := int(row.TokenCount)
+		if tokenCount == 0 {
+			tokenCount = EstimateTokenCount(row.Content)
+		}
 		messages[i] = LCMMessage{
 			ID:         row.ID,
 			SessionID:  row.SessionID,
 			CreatedAt:  row.CreatedAt,
 			Role:       row.Role,
 			Content:    row.Content,
-			TokenCount: EstimateTokenCount(row.Content),
+			TokenCount: tokenCount,
 		}
 	}
 	return messages, nil
@@ -354,12 +392,14 @@ func (s *SQLiteStore) GetLargeFile(ctx context.Context, fileID string) (*LargeFi
 		return nil, fmt.Errorf("failed to get large file %s: %w", fileID, err)
 	}
 	return &LargeFile{
-		FileID:       row.FileID,
-		SessionID:    row.SessionID,
-		OriginalPath: row.OriginalPath,
-		MimeType:     row.MimeType,
-		TokenCount:   row.TokenCount,
-		CreatedAt:    row.CreatedAt,
+		FileID:             row.FileID,
+		SessionID:          row.SessionID,
+		OriginalPath:       row.OriginalPath,
+		MimeType:           row.MimeType,
+		TokenCount:         row.TokenCount,
+		CreatedAt:          row.CreatedAt,
+		ExplorationSummary: row.ExplorationSummary.String,
+		ExplorerUsed:       row.ExplorerUsed.String,
 	}, nil
 }
 
@@ -454,11 +494,13 @@ func (s *SQLiteStore) SetSessionConfig(ctx context.Context, config *SessionConfi
 
 // SearchMessages performs FTS5 full-text search across session messages (DB-23).
 // Implemented with raw SQL because sqlc cannot introspect FTS5 virtual tables.
+// E19: includes m.token_count in SELECT.
 func (s *SQLiteStore) SearchMessages(ctx context.Context, sessionID string, query string, limit int) ([]LCMMessage, error) {
 	safe := "\"" + strings.ReplaceAll(query, "\"", " ") + "\""
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT m.id, m.session_id, m.role, m.parts, m.created_at
+		`SELECT m.id, m.session_id, m.role, m.parts, m.created_at,
+		        COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4) AS token_count
 		 FROM messages_fts fts
 		 JOIN messages m ON m.rowid = fts.rowid
 		 WHERE messages_fts MATCH ?
@@ -473,10 +515,12 @@ func (s *SQLiteStore) SearchMessages(ctx context.Context, sessionID string, quer
 	var messages []LCMMessage
 	for rows.Next() {
 		var msg LCMMessage
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt, &msg.TokenCount); err != nil {
 			return nil, err
 		}
-		msg.TokenCount = EstimateTokenCount(msg.Content)
+		if msg.TokenCount == 0 {
+			msg.TokenCount = EstimateTokenCount(msg.Content)
+		}
 		messages = append(messages, msg)
 	}
 	if err := rows.Err(); err != nil {
@@ -489,6 +533,7 @@ func (s *SQLiteStore) SearchMessages(ctx context.Context, sessionID string, quer
 // SQLite's built-in REGEXP requires a driver-specific user function, so this
 // fetches candidate messages with a session filter and applies Go's regexp
 // for matching. Results are capped at limit.
+// E19: includes m.token_count in SELECT.
 func (s *SQLiteStore) SearchMessagesRegex(ctx context.Context, sessionID string, pattern string, limit int) ([]LCMMessage, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -496,7 +541,8 @@ func (s *SQLiteStore) SearchMessagesRegex(ctx context.Context, sessionID string,
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT m.id, m.session_id, m.role, m.parts, m.created_at
+		`SELECT m.id, m.session_id, m.role, m.parts, m.created_at,
+		        COALESCE(m.token_count, (LENGTH(COALESCE(m.parts, '')) + 3) / 4) AS token_count
 		 FROM messages m
 		 WHERE m.session_id = ?
 		 ORDER BY m.created_at DESC`, sessionID)
@@ -508,11 +554,13 @@ func (s *SQLiteStore) SearchMessagesRegex(ctx context.Context, sessionID string,
 	var messages []LCMMessage
 	for rows.Next() && len(messages) < limit {
 		var msg LCMMessage
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt, &msg.TokenCount); err != nil {
 			return nil, err
 		}
 		if re.MatchString(msg.Content) {
-			msg.TokenCount = EstimateTokenCount(msg.Content)
+			if msg.TokenCount == 0 {
+				msg.TokenCount = EstimateTokenCount(msg.Content)
+			}
 			messages = append(messages, msg)
 		}
 	}
@@ -520,6 +568,229 @@ func (s *SQLiteStore) SearchMessagesRegex(ctx context.Context, sessionID string,
 		return nil, err
 	}
 	return messages, nil
+}
+
+// --- Exploration cache (Phase 5.2, E17) ---
+
+// GetLargeFileExploration retrieves cached exploration result for a large file.
+// E17: derives FileIDs and TokenCount from the cached summary text.
+func (s *SQLiteStore) GetLargeFileExploration(ctx context.Context, fileID string) (*ExplorationResult, error) {
+	row, err := s.q.LCMGetLargeFileExploration(ctx, fileID)
+	if err != nil {
+		return nil, err
+	}
+	if !row.ExplorationSummary.Valid || row.ExplorationSummary.String == "" {
+		return nil, fmt.Errorf("no exploration cached for file %s", fileID)
+	}
+	return &ExplorationResult{
+		Summary:      row.ExplorationSummary.String,
+		FileIDs:      extractFileIDs(row.ExplorationSummary.String),
+		TokenCount:   EstimateTokenCount(row.ExplorationSummary.String),
+		ExplorerUsed: row.ExplorerUsed.String,
+	}, nil
+}
+
+// SetLargeFileExploration caches an exploration result for a large file.
+func (s *SQLiteStore) SetLargeFileExploration(ctx context.Context, fileID string, result *ExplorationResult) error {
+	return s.q.LCMUpdateLargeFileExploration(ctx, db.LCMUpdateLargeFileExplorationParams{
+		ExplorationSummary: sql.NullString{String: result.Summary, Valid: true},
+		ExplorerUsed:       sql.NullString{String: result.ExplorerUsed, Valid: true},
+		FileID:             fileID,
+	})
+}
+
+// --- Agentic map operations (Phase 6) ---
+
+func (s *SQLiteStore) CreateAgenticMapRun(ctx context.Context, run *AgenticMapRun) error {
+	return s.q.CreateAgenticMapRun(ctx, db.CreateAgenticMapRunParams{
+		MapID:          run.MapID,
+		Status:         run.Status,
+		InputPath:      sql.NullString{String: run.InputPath, Valid: run.InputPath != ""},
+		Prompt:         sql.NullString{String: run.Prompt, Valid: run.Prompt != ""},
+		OutputSchema:   sql.NullString{String: run.OutputSchema, Valid: run.OutputSchema != ""},
+		ReadOnly:       boolToInt64(run.ReadOnly),
+		Concurrency:    int64(run.Concurrency),
+		TimeoutSeconds: int64(run.TimeoutSeconds),
+		MaxAttempts:    int64(run.MaxAttempts),
+	})
+}
+
+func (s *SQLiteStore) GetAgenticMapRun(ctx context.Context, mapID string) (*AgenticMapRun, error) {
+	row, err := s.q.GetAgenticMapRun(ctx, mapID)
+	if err != nil {
+		return nil, err
+	}
+	return &AgenticMapRun{
+		MapID:          row.MapID,
+		RunStartedAt:   row.RunStartedAt,
+		Status:         row.Status,
+		InputPath:      row.InputPath.String,
+		InputLcmID:     row.InputLcmID.String,
+		OutputPath:     row.OutputPath.String,
+		OutputLcmID:    row.OutputLcmID.String,
+		Prompt:         row.Prompt.String,
+		OutputSchema:   row.OutputSchema.String,
+		ReadOnly:       row.ReadOnly != 0,
+		Concurrency:    int(row.Concurrency),
+		TimeoutSeconds: int(row.TimeoutSeconds),
+		MaxAttempts:    int(row.MaxAttempts),
+	}, nil
+}
+
+func (s *SQLiteStore) UpdateAgenticMapRunStatus(ctx context.Context, mapID, status string) error {
+	return s.q.UpdateAgenticMapRunStatus(ctx, db.UpdateAgenticMapRunStatusParams{
+		MapID:  mapID,
+		Status: status,
+	})
+}
+
+func (s *SQLiteStore) CreateAgenticMapItem(ctx context.Context, item *AgenticMapItem) error {
+	return s.q.CreateAgenticMapItem(ctx, db.CreateAgenticMapItemParams{
+		MapID:     item.MapID,
+		ItemIndex: int64(item.ItemIndex),
+		Item:      item.Item,
+		Status:    item.Status,
+	})
+}
+
+func (s *SQLiteStore) UpdateAgenticMapItem(ctx context.Context, item *AgenticMapItem) error {
+	return s.q.UpdateAgenticMapItem(ctx, db.UpdateAgenticMapItemParams{
+		MapID:        item.MapID,
+		ItemIndex:    int64(item.ItemIndex),
+		Status:       item.Status,
+		AttemptsUsed: int64(item.AttemptsUsed),
+		StartedAt:    sql.NullInt64{Int64: item.StartedAt, Valid: item.StartedAt != 0},
+		FinishedAt:   sql.NullInt64{Int64: item.FinishedAt, Valid: item.FinishedAt != 0},
+		Result:       sql.NullString{String: item.Result, Valid: item.Result != ""},
+		Error:        sql.NullString{String: item.Error, Valid: item.Error != ""},
+	})
+}
+
+func (s *SQLiteStore) GetAgenticMapItemsByStatus(ctx context.Context, mapID, status string) ([]AgenticMapItem, error) {
+	rows, err := s.q.GetAgenticMapItemsByStatus(ctx, db.GetAgenticMapItemsByStatusParams{
+		MapID:  mapID,
+		Status: status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]AgenticMapItem, len(rows))
+	for i, row := range rows {
+		items[i] = AgenticMapItem{
+			MapID:        row.MapID,
+			ItemIndex:    int(row.ItemIndex),
+			Item:         row.Item,
+			Status:       row.Status,
+			AttemptsUsed: int(row.AttemptsUsed),
+			StartedAt:    row.StartedAt.Int64,
+			FinishedAt:   row.FinishedAt.Int64,
+			Result:       row.Result.String,
+			Error:        row.Error.String,
+		}
+	}
+	return items, nil
+}
+
+// --- LLM map operations (Phase 6) ---
+
+func (s *SQLiteStore) CreateLlmMapRun(ctx context.Context, run *LlmMapRun) error {
+	return s.q.CreateLlmMapRun(ctx, db.CreateLlmMapRunParams{
+		MapID:          run.MapID,
+		Status:         run.Status,
+		InputPath:      sql.NullString{String: run.InputPath, Valid: run.InputPath != ""},
+		Prompt:         sql.NullString{String: run.Prompt, Valid: run.Prompt != ""},
+		OutputSchema:   sql.NullString{String: run.OutputSchema, Valid: run.OutputSchema != ""},
+		Model:          sql.NullString{String: run.Model, Valid: run.Model != ""},
+		Concurrency:    int64(run.Concurrency),
+		TimeoutSeconds: int64(run.TimeoutSeconds),
+		MaxAttempts:    int64(run.MaxAttempts),
+	})
+}
+
+func (s *SQLiteStore) GetLlmMapRun(ctx context.Context, mapID string) (*LlmMapRun, error) {
+	row, err := s.q.GetLlmMapRun(ctx, mapID)
+	if err != nil {
+		return nil, err
+	}
+	return &LlmMapRun{
+		MapID:                    row.MapID,
+		RunStartedAt:             row.RunStartedAt,
+		Status:                   row.Status,
+		InputPath:                row.InputPath.String,
+		InputLcmID:               row.InputLcmID.String,
+		OutputPath:               row.OutputPath.String,
+		OutputLcmID:              row.OutputLcmID.String,
+		Prompt:                   row.Prompt.String,
+		OutputSchema:             row.OutputSchema.String,
+		Model:                    row.Model.String,
+		Concurrency:              int(row.Concurrency),
+		TimeoutSeconds:           int(row.TimeoutSeconds),
+		MaxAttempts:              int(row.MaxAttempts),
+		ResolvedProvider:         row.ResolvedProvider.String,
+		ResolvedModel:            row.ResolvedModel.String,
+		ResolvedRequestOverrides: row.ResolvedRequestOverrides.String,
+	}, nil
+}
+
+func (s *SQLiteStore) UpdateLlmMapRunStatus(ctx context.Context, mapID, status string) error {
+	return s.q.UpdateLlmMapRunStatus(ctx, db.UpdateLlmMapRunStatusParams{
+		MapID:  mapID,
+		Status: status,
+	})
+}
+
+func (s *SQLiteStore) CreateLlmMapItem(ctx context.Context, item *LlmMapItem) error {
+	return s.q.CreateLlmMapItem(ctx, db.CreateLlmMapItemParams{
+		MapID:     item.MapID,
+		ItemIndex: int64(item.ItemIndex),
+		Item:      item.Item,
+		Status:    item.Status,
+	})
+}
+
+func (s *SQLiteStore) UpdateLlmMapItem(ctx context.Context, item *LlmMapItem) error {
+	return s.q.UpdateLlmMapItem(ctx, db.UpdateLlmMapItemParams{
+		MapID:        item.MapID,
+		ItemIndex:    int64(item.ItemIndex),
+		Status:       item.Status,
+		AttemptsUsed: int64(item.AttemptsUsed),
+		StartedAt:    sql.NullInt64{Int64: item.StartedAt, Valid: item.StartedAt != 0},
+		FinishedAt:   sql.NullInt64{Int64: item.FinishedAt, Valid: item.FinishedAt != 0},
+		Result:       sql.NullString{String: item.Result, Valid: item.Result != ""},
+		Error:        sql.NullString{String: item.Error, Valid: item.Error != ""},
+	})
+}
+
+func (s *SQLiteStore) GetLlmMapItemsByStatus(ctx context.Context, mapID, status string) ([]LlmMapItem, error) {
+	rows, err := s.q.GetLlmMapItemsByStatus(ctx, db.GetLlmMapItemsByStatusParams{
+		MapID:  mapID,
+		Status: status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]LlmMapItem, len(rows))
+	for i, row := range rows {
+		items[i] = LlmMapItem{
+			MapID:        row.MapID,
+			ItemIndex:    int(row.ItemIndex),
+			Item:         row.Item,
+			Status:       row.Status,
+			AttemptsUsed: int(row.AttemptsUsed),
+			StartedAt:    row.StartedAt.Int64,
+			FinishedAt:   row.FinishedAt.Int64,
+			Result:       row.Result.String,
+			Error:        row.Error.String,
+		}
+	}
+	return items, nil
+}
+
+func boolToInt64(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // SearchSummaries performs FTS5 search. Implemented with raw SQL because

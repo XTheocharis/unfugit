@@ -27,12 +27,14 @@ type LcmContextItem struct {
 }
 
 type LcmLargeFile struct {
-	FileID       string `json:"file_id"`
-	SessionID    string `json:"session_id"`
-	OriginalPath string `json:"original_path"`
-	MimeType     string `json:"mime_type"`
-	TokenCount   int64  `json:"token_count"`
-	CreatedAt    int64  `json:"created_at"`
+	FileID             string         `json:"file_id"`
+	SessionID          string         `json:"session_id"`
+	OriginalPath       string         `json:"original_path"`
+	MimeType           string         `json:"mime_type"`
+	TokenCount         int64          `json:"token_count"`
+	CreatedAt          int64          `json:"created_at"`
+	ExplorationSummary sql.NullString `json:"exploration_summary"`
+	ExplorerUsed       sql.NullString `json:"explorer_used"`
 }
 
 type LcmSummariesFt struct {
@@ -76,6 +78,7 @@ type Message struct {
 	FinishedAt       sql.NullInt64  `json:"finished_at"`
 	Provider         sql.NullString `json:"provider"`
 	IsSummaryMessage int64          `json:"is_summary_message"`
+	TokenCount       sql.NullInt64  `json:"token_count"`
 }
 
 type ReadFile struct {
@@ -96,4 +99,101 @@ type Session struct {
 	CreatedAt        int64          `json:"created_at"`
 	SummaryMessageID sql.NullString `json:"summary_message_id"`
 	Todos            sql.NullString `json:"todos"`
+}
+
+// MessagePart represents a row in the message_parts table (DB-4).
+type MessagePart struct {
+	PartID        string         `json:"part_id"`
+	MessageID     string         `json:"message_id"`
+	SessionID     string         `json:"session_id"`
+	PartType      string         `json:"part_type"`
+	Ordinal       int64          `json:"ordinal"`
+	TextContent   sql.NullString `json:"text_content"`
+	IsIgnored     sql.NullInt64  `json:"is_ignored"`
+	IsSynthetic   sql.NullInt64  `json:"is_synthetic"`
+	ToolCallID    sql.NullString `json:"tool_call_id"`
+	ToolName      sql.NullString `json:"tool_name"`
+	ToolStatus    sql.NullString `json:"tool_status"`
+	ToolInput     sql.NullString `json:"tool_input"`
+	ToolOutput    sql.NullString `json:"tool_output"`
+	ToolError     sql.NullString `json:"tool_error"`
+	ToolTitle     sql.NullString `json:"tool_title"`
+	PatchHash     sql.NullString `json:"patch_hash"`
+	PatchFiles    sql.NullString `json:"patch_files"`
+	FileMime      sql.NullString `json:"file_mime"`
+	FileName      sql.NullString `json:"file_name"`
+	FileURL       sql.NullString `json:"file_url"`
+	SubtaskPrompt sql.NullString `json:"subtask_prompt"`
+	SubtaskDesc   sql.NullString `json:"subtask_desc"`
+	SubtaskAgent  sql.NullString `json:"subtask_agent"`
+	StepReason    sql.NullString `json:"step_reason"`
+	StepCost      sql.NullFloat64 `json:"step_cost"`
+	StepTokensIn  sql.NullInt64  `json:"step_tokens_in"`
+	StepTokensOut sql.NullInt64  `json:"step_tokens_out"`
+	SnapshotHash  sql.NullString `json:"snapshot_hash"`
+	CompactionAuto sql.NullInt64 `json:"compaction_auto"`
+	Metadata      sql.NullString `json:"metadata"`
+}
+
+// AgenticMapRun represents a row in the agentic_map_runs table (DB-5).
+type AgenticMapRun struct {
+	MapID          string         `json:"map_id"`
+	RunStartedAt   int64          `json:"run_started_at"`
+	Status         string         `json:"status"`
+	InputPath      sql.NullString `json:"input_path"`
+	InputLcmID     sql.NullString `json:"input_lcm_id"`
+	OutputPath     sql.NullString `json:"output_path"`
+	OutputLcmID    sql.NullString `json:"output_lcm_id"`
+	Prompt         sql.NullString `json:"prompt"`
+	OutputSchema   sql.NullString `json:"output_schema"`
+	ReadOnly       int64          `json:"read_only"`
+	Concurrency    int64          `json:"concurrency"`
+	TimeoutSeconds int64          `json:"timeout_seconds"`
+	MaxAttempts    int64          `json:"max_attempts"`
+}
+
+// AgenticMapItem represents a row in the agentic_map_items table (DB-5).
+type AgenticMapItem struct {
+	MapID        string         `json:"map_id"`
+	ItemIndex    int64          `json:"item_index"`
+	Item         string         `json:"item"`
+	Status       string         `json:"status"`
+	AttemptsUsed int64          `json:"attempts_used"`
+	StartedAt    sql.NullInt64  `json:"started_at"`
+	FinishedAt   sql.NullInt64  `json:"finished_at"`
+	Result       sql.NullString `json:"result"`
+	Error        sql.NullString `json:"error"`
+}
+
+// LlmMapRun represents a row in the llm_map_runs table (DB-6, E22).
+type LlmMapRun struct {
+	MapID                    string         `json:"map_id"`
+	RunStartedAt             int64          `json:"run_started_at"`
+	Status                   string         `json:"status"`
+	InputPath                sql.NullString `json:"input_path"`
+	InputLcmID               sql.NullString `json:"input_lcm_id"`
+	OutputPath               sql.NullString `json:"output_path"`
+	OutputLcmID              sql.NullString `json:"output_lcm_id"`
+	Prompt                   sql.NullString `json:"prompt"`
+	OutputSchema             sql.NullString `json:"output_schema"`
+	Model                    sql.NullString `json:"model"`
+	Concurrency              int64          `json:"concurrency"`
+	TimeoutSeconds           int64          `json:"timeout_seconds"`
+	MaxAttempts              int64          `json:"max_attempts"`
+	ResolvedProvider         sql.NullString `json:"resolved_provider"`
+	ResolvedModel            sql.NullString `json:"resolved_model"`
+	ResolvedRequestOverrides sql.NullString `json:"resolved_request_overrides"`
+}
+
+// LlmMapItem represents a row in the llm_map_items table (DB-6, E22).
+type LlmMapItem struct {
+	MapID        string         `json:"map_id"`
+	ItemIndex    int64          `json:"item_index"`
+	Item         string         `json:"item"`
+	Status       string         `json:"status"`
+	AttemptsUsed int64          `json:"attempts_used"`
+	StartedAt    sql.NullInt64  `json:"started_at"`
+	FinishedAt   sql.NullInt64  `json:"finished_at"`
+	Result       sql.NullString `json:"result"`
+	Error        sql.NullString `json:"error"`
 }

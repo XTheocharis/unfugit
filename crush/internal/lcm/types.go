@@ -45,12 +45,14 @@ type ContextEntry struct {
 
 // LargeFile represents a path-only reference to a large file.
 type LargeFile struct {
-	FileID       string
-	SessionID    string
-	OriginalPath string
-	MimeType     string
-	TokenCount   int64
-	CreatedAt    int64
+	FileID             string
+	SessionID          string
+	OriginalPath       string
+	MimeType           string
+	TokenCount         int64
+	CreatedAt          int64
+	ExplorationSummary string // E6: exploration cache fields
+	ExplorerUsed       string // E6: which explorer produced the summary
 }
 
 // LargeFileContent holds streamed file data.
@@ -66,6 +68,71 @@ type CompactionResult struct {
 	Rounds      int
 	FinalTokens int
 	Error       error
+}
+
+// --- MAP/REDUCE DOMAIN TYPES ---
+
+// AgenticMapRun represents an agentic map operation.
+type AgenticMapRun struct {
+	MapID          string
+	RunStartedAt   int64
+	Status         string
+	InputPath      string
+	InputLcmID     string
+	OutputPath     string
+	OutputLcmID    string
+	Prompt         string
+	OutputSchema   string
+	ReadOnly       bool
+	Concurrency    int
+	TimeoutSeconds int
+	MaxAttempts    int
+}
+
+// AgenticMapItem represents a single item in an agentic map operation.
+type AgenticMapItem struct {
+	MapID        string
+	ItemIndex    int
+	Item         string
+	Status       string
+	AttemptsUsed int
+	StartedAt    int64
+	FinishedAt   int64
+	Result       string
+	Error        string
+}
+
+// LlmMapRun represents an LLM map operation (E18).
+type LlmMapRun struct {
+	MapID                    string
+	RunStartedAt             int64
+	Status                   string
+	InputPath                string
+	InputLcmID               string
+	OutputPath               string
+	OutputLcmID              string
+	Prompt                   string
+	OutputSchema             string
+	Model                    string
+	Concurrency              int
+	TimeoutSeconds           int
+	MaxAttempts              int
+	ResolvedProvider         string
+	ResolvedModel            string
+	ResolvedRequestOverrides string
+}
+
+// LlmMapItem represents a single item in an LLM map operation.
+type LlmMapItem struct {
+	MapID        string
+	ItemIndex    int
+	Item         string
+	Status       string
+	AttemptsUsed int
+	StartedAt    int64
+	FinishedAt   int64
+	Result       string
+	Error        string
 }
 
 // --- INTERFACES ---
@@ -111,6 +178,7 @@ type Store interface {
 	ReplacePositionsWithSummary(ctx context.Context, sessionID string, positions []int, summaryID string) error
 	AppendContextItem(ctx context.Context, sessionID string, itemType string, messageID *string, summaryID *string) error
 	GetMessagesToSummarize(ctx context.Context, sessionID string, rowLimit int) ([]ContextEntry, error)
+	GetMessagesToSummarizeByTokenBudget(ctx context.Context, sessionID string, tokenBudget int) ([]ContextEntry, error) // Phase 3.2
 	CountMessagesInContext(ctx context.Context, sessionID string) (int, error)
 	CountSummariesInContext(ctx context.Context, sessionID string) (int, error)
 
@@ -133,6 +201,8 @@ type Store interface {
 	// --- Large file operations ---
 	InsertLargeFileFromPath(ctx context.Context, sessionID string, filePath string, mimeType string) (*LargeFile, error)
 	GetLargeFile(ctx context.Context, fileID string) (*LargeFile, error)
+	GetLargeFileExploration(ctx context.Context, fileID string) (*ExplorationResult, error)    // Phase 5.2
+	SetLargeFileExploration(ctx context.Context, fileID string, result *ExplorationResult) error // Phase 5.2
 
 	// --- Search operations ---
 	SearchSummaries(ctx context.Context, sessionID string, query string, limit int) ([]Summary, error)
@@ -142,6 +212,22 @@ type Store interface {
 	// --- Session config (DB-15/DB-16) ---
 	GetSessionConfig(ctx context.Context, sessionID string) (*SessionConfig, error)
 	SetSessionConfig(ctx context.Context, config *SessionConfig) error
+
+	// --- Agentic map operations (Phase 6) ---
+	CreateAgenticMapRun(ctx context.Context, run *AgenticMapRun) error
+	GetAgenticMapRun(ctx context.Context, mapID string) (*AgenticMapRun, error)
+	UpdateAgenticMapRunStatus(ctx context.Context, mapID, status string) error
+	CreateAgenticMapItem(ctx context.Context, item *AgenticMapItem) error
+	UpdateAgenticMapItem(ctx context.Context, item *AgenticMapItem) error
+	GetAgenticMapItemsByStatus(ctx context.Context, mapID, status string) ([]AgenticMapItem, error)
+
+	// --- LLM map operations (Phase 6) ---
+	CreateLlmMapRun(ctx context.Context, run *LlmMapRun) error
+	GetLlmMapRun(ctx context.Context, mapID string) (*LlmMapRun, error)
+	UpdateLlmMapRunStatus(ctx context.Context, mapID, status string) error
+	CreateLlmMapItem(ctx context.Context, item *LlmMapItem) error
+	UpdateLlmMapItem(ctx context.Context, item *LlmMapItem) error
+	GetLlmMapItemsByStatus(ctx context.Context, mapID, status string) ([]LlmMapItem, error)
 }
 
 // EventBus publishes compaction lifecycle events.
