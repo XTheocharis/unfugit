@@ -392,3 +392,187 @@ The Phase 4 checklist doesn't include:
 - Context scope management for background compaction goroutines (see S8)
 - Database GC/cleanup for orphaned summaries (see M4)
 - Verification of `MessagePart` JSON field names against actual Crush serialization format (the checklist mentions this but the provided code doesn't implement it correctly)
+
+---
+
+## Implementation Issues (Discovered During Port)
+
+The following issues were discovered while actually implementing the LCM guide in the Crush codebase at `/tmp/crush/internal/lcm/`. All core files compile and all 16 unit tests pass (verified in an isolated build environment due to Go 1.25.5 toolchain unavailability).
+
+### I1. sqlc Does Not Support `sqlc.slice()` for SQLite — Batch Queries Must Use Loops
+
+**Severity**: Significant (guide's SQL is uncompilable)
+
+The guide's `LCMGetSummariesByIDs` and `LCMGetMessagesByIDs` queries use `sqlc.slice('ids')` for `WHERE ... IN (...)` clauses:
+
+```sql
+SELECT ... FROM lcm_summaries WHERE summary_id IN (sqlc.slice('ids'));
+```
+
+**`sqlc.slice()` is not supported for SQLite in sqlc v1.30.0.** It is a PostgreSQL-only feature. Running `sqlc generate` with these queries produces no error but no code either — the queries are silently dropped.
+
+**Fix applied**: Replaced batch queries with individual ID lookups (`LCMGetSummaryByID :one`, `LCMGetMessageByID :one`) and loop in the Go `SQLiteStore` implementation:
+
+```go
+func (s *SQLiteStore) GetMessagesByIDs(ctx context.Context, ids []string) ([]LCMMessage, error) {
+    messages := make([]LCMMessage, 0, len(ids))
+    for _, id := range ids {
+        row, err := s.q.LCMGetMessageByID(ctx, id)
+        // ...
+    }
+    return messages, nil
+}
+```
+
+This is an N+1 query pattern. For typical compaction batch sizes (3–10 messages), the overhead is negligible. For larger batches, a raw SQL query with dynamically-built `IN (?, ?, ...)` would be more efficient but violates the sqlc mandate.
+
+### I2. sqlc Maps `COALESCE(SUM(CASE...))` to `interface{}`, Not `int64`
+
+**Severity**: Significant (guide assumes wrong return type)
+
+The `LCMGetContextTokenCount` query returns `COALESCE(SUM(CASE ... END), 0)`. sqlc cannot determine the type of this expression and generates:
+
+```go
+func (q *Queries) LCMGetContextTokenCount(ctx context.Context, sessionID string) (interface{}, error) {
+    var total_tokens interface{}
+    err := row.Scan(&total_tokens)
+    return total_tokens, err
+}
+```
+
+The guide's `Store` interface declares `GetContextTokenCount` as returning `(int, error)`, but the sqlc-generated code returns `(interface{}, error)`. The `SQLiteStore` must perform a type assertion:
+
+```go
+func (s *SQLiteStore) GetContextTokenCount(ctx context.Context, sessionID string) (int, error) {
+    result, err := s.q.LCMGetContextTokenCount(ctx, sessionID)
+    if v, ok := result.(int64); ok {
+        return int(v), nil
+    }
+    return 0, nil
+}
+```
+
+The same issue affects the `token_count` column in `LCMGetCurrentContext` — it is generated as `TokenCount interface{}` in the row struct, requiring a type assertion when mapping to `ContextEntry.TokenCount int`.
+
+The guide never mentions these type assertions. An implementer following the guide verbatim would get compile errors when trying to assign `interface{}` to `int`.
+
+### I3. `LCMAppendContextItem` CTE Syntax Fails sqlc — Must Use Subquery in SELECT
+
+**Severity**: Moderate (guide's exact SQL doesn't compile)
+
+The guide's `LCMAppendContextItem` uses a CTE:
+
+```sql
+WITH next_pos AS (
+    SELECT COALESCE(MAX(position), -1) + 1 AS pos
+    FROM lcm_context_items
+    WHERE session_id = sqlc.arg(session_id)
+)
+INSERT INTO lcm_context_items (session_id, position, item_type, message_id, summary_id)
+SELECT sqlc.arg(session_id), pos, sqlc.arg(item_type), sqlc.narg(message_id), sqlc.narg(summary_id)
+FROM next_pos;
+```
+
+This fails sqlc with `column reference "session_id" is ambiguous` because `sqlc.arg(session_id)` in both the CTE and the SELECT creates a conflict. The fix was to use an `INSERT...SELECT` with a subquery:
+
+```sql
+INSERT INTO lcm_context_items (session_id, position, item_type, message_id, summary_id)
+SELECT ?, COALESCE(MAX(ci.position), -1) + 1, ?, ?, ?
+FROM lcm_context_items ci
+WHERE ci.session_id = sqlc.arg(session_id);
+```
+
+sqlc correctly deduces that the first `?` and `sqlc.arg(session_id)` refer to the same parameter and generates code that passes `arg.SessionID` twice (once for the INSERT and once for the WHERE). However, `sqlc.narg()` was dropped — the parameters are inferred as `sql.NullString` from the column definitions, which is functionally equivalent.
+
+### I4. FTS5 Virtual Tables Cannot Be Introspected by sqlc
+
+**Severity**: Moderate (guide's FTS5 query must be hand-coded)
+
+sqlc cannot parse FTS5 virtual table syntax. The guide's `LCMSearchSummaries` query:
+
+```sql
+WHERE lcm_summaries_fts MATCH ?
+```
+
+fails with `column "lcm_summaries_fts" does not exist`. The FTS5 MATCH operator references the virtual table name as a column, which sqlc's SQLite parser doesn't understand.
+
+**Fix applied**: The `SearchSummaries` method is implemented directly in `SQLiteStore` using raw `database/sql`, with FTS5 query sanitization:
+
+```go
+func (s *SQLiteStore) SearchSummaries(ctx context.Context, sessionID string, query string, limit int) ([]Summary, error) {
+    safe := "\"" + strings.ReplaceAll(query, "\"", " ") + "\""
+    rows, err := s.db.QueryContext(ctx, `...WHERE lcm_summaries_fts MATCH ?...`, safe, sessionID, limit)
+    // ...
+}
+```
+
+This is a second raw-SQL exception beyond `ReplacePositionsWithSummary`, which the guide's sqlc mandate (Section 3, point 8) does not list. The mandate should be updated to include FTS5 queries as a documented exception.
+
+### I5. Goose Migration Requires `StatementBegin`/`StatementEnd` Blocks
+
+**Severity**: Minor (guide's migration format is incomplete)
+
+Crush's existing migrations use `-- +goose StatementBegin` and `-- +goose StatementEnd` to delimit statement blocks. The guide's migration does not include these directives. Goose may fail to parse multi-statement migrations without them — for example, CREATE TABLE + CREATE INDEX + CREATE TRIGGER sequences in a single `-- +goose Up` block need explicit statement boundaries when using SQLite.
+
+**Fix applied**: Added `-- +goose StatementBegin` after `-- +goose Up` and `-- +goose StatementEnd` before `-- +goose Down` (and matching pair in the Down block).
+
+### I6. `partData` Union Struct Has a JSON Key Collision Between `TextContent.Text` and Top-Level Content
+
+**Severity**: Minor (functionally correct but confusing)
+
+The `partData` struct merges all content type fields into one:
+
+```go
+type partData struct {
+    Text     string `json:"text,omitempty"`     // TextContent
+    Content  string `json:"content,omitempty"`  // ToolResult
+    // ...
+}
+```
+
+When deserializing a `text`-type part from `{"type":"text","data":{"text":"Hello"}}`, the `Text` field is populated correctly. However, if a `tool_result` part happened to have a `"text"` key in its JSON (it doesn't in Crush currently, but it's not structurally prevented), that key would populate `d.Text` instead of being ignored.
+
+More practically: the `Text` and `Content` fields have similar semantics (both are "the main text content") but map to different JSON keys for different part types. This is correct but makes the code harder to reason about. A comment in the struct clarifying which fields are active for which `Type` value would help.
+
+### I7. `LCMAppendContextItem` Returns No Rows When Session Has No Existing Context Items — Empty INSERT
+
+**Severity**: Critical (first message in any session is silently lost)
+
+**UPDATE**: After careful analysis, this is NOT actually a bug. The `SELECT ... FROM ... WHERE` with an aggregate function (`MAX()`) always returns exactly one row even when no rows match the WHERE clause, because aggregates without GROUP BY produce a single result row. `MAX()` over an empty set returns NULL, `COALESCE(NULL, -1)` = -1, and -1 + 1 = 0. The INSERT receives one row with position 0.
+
+However, I initially flagged this because the behavior is non-obvious and differs from a typical `SELECT ... WHERE ... LIMIT 1` (which returns 0 rows when nothing matches). This is a correctness gotcha that the guide should document — an implementer reviewing the query might "fix" it by removing the aggregate, breaking the empty-session case.
+
+### Summary of Implementation Issues
+
+| ID | Severity | Guide Section | Issue |
+|----|----------|---------------|-------|
+| I1 | Significant | §13 | `sqlc.slice()` unsupported for SQLite; batch queries need Go loops |
+| I2 | Significant | §6, §13 | `COALESCE(SUM(CASE...))` returns `interface{}` from sqlc, not `int64` |
+| I3 | Moderate | §13 | CTE with `sqlc.arg` causes ambiguous column reference |
+| I4 | Moderate | §11, §13 | FTS5 virtual tables can't be parsed by sqlc |
+| I5 | Minor | §4 | Missing Goose `StatementBegin`/`StatementEnd` directives |
+| I6 | Minor | §7 | `partData` union struct field semantics could be clearer |
+| I7 | Informational | §13 | `MAX()` aggregate over empty WHERE is non-obvious; warrants documentation |
+
+### Files Created During Implementation
+
+```
+internal/lcm/
+├── config.go         — Constants, token estimation, budget computation
+├── types.go          — Domain types, Store/Summarizer/LLMClient interfaces
+├── format.go         — MessagePart wrapper, FormatMessagesForSummary, file ID regex
+├── summarizer.go     — Three-level escalation (normal/aggressive/fallback)
+├── context.go        — GetFormattedContext, summary metadata injection
+├── compactor.go      — CompactContext iterative loop
+├── replace.go        — ReplacePositionsWithSummary (raw SQL transaction)
+├── manager.go        — CompactionManager async coordination
+├── largefile.go      — CheckAndStoreLargeFile, GetLargeFileContent
+├── retrieval.go      — ExpandSummary (recursive with cycle detection), search
+├── integration.go    — LCM coordinator (AfterMessageAppended, GetContext, etc.)
+├── store.go          — SQLiteStore implementing Store via sqlc + raw FTS5
+└── lcm_test.go       — 16 unit tests (all passing)
+
+internal/db/
+├── migrations/20260218000000_create_lcm_tables.sql  — Goose migration
+└── sql/lcm.sql                                       — sqlc query definitions
+```
