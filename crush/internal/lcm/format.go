@@ -25,41 +25,62 @@ func FormatMessagesForSummary(messages []LCMMessage) string {
 			continue
 		}
 		for _, part := range msgParts {
-			d := part.Data
-			switch part.Type {
-			case "text":
-				if d.Text != "" {
-					parts = append(parts, d.Text)
-				}
-			case "tool_call":
-				parts = append(parts, fmt.Sprintf("[Tool Call: %s]", d.Name))
-				if d.Input != "" {
-					parts = append(parts, fmt.Sprintf("Input: %s", d.Input))
-				}
-				if !d.Finished {
-					parts = append(parts, "[In Progress]")
-				}
-			case "tool_result":
-				if d.IsError {
-					parts = append(parts, fmt.Sprintf("[Tool Error]\n%s", runeAwareTruncate(d.Content, 1000)))
-				} else {
-					parts = append(parts, fmt.Sprintf("[Tool Result]\n%s", runeAwareTruncate(d.Content, 1000)))
-				}
-			case "reasoning":
-				if d.Thinking != "" {
-					parts = append(parts, fmt.Sprintf("[Reasoning] %s", d.Thinking))
-				}
-			case "finish":
-				// End-of-turn marker
-			case "image_url":
-				// Skip for summarization
-			case "binary":
-				// Skip, handled via large file storage
-			}
+			parts = append(parts, formatPart(part)...)
 		}
 		parts = append(parts, "")
 	}
 	return strings.Join(parts, "\n")
+}
+
+func formatPart(part MessagePart) []string {
+	d := part.Data
+	var out []string
+	switch part.Type {
+	case "text":
+		if d.Text != "" {
+			out = append(out, d.Text)
+		}
+	case "tool_call":
+		out = append(out, fmt.Sprintf("[Tool Call: %s]", d.Name))
+		if d.Input != "" {
+			out = append(out, fmt.Sprintf("Input: %s", d.Input))
+		}
+		if !d.Finished {
+			out = append(out, "[In Progress]")
+		}
+	case "tool_result":
+		if d.IsError {
+			out = append(out, fmt.Sprintf("[Tool Error]\n%s", runeAwareTruncate(d.Content, 1000)))
+		} else {
+			out = append(out, fmt.Sprintf("[Tool Result]\n%s", runeAwareTruncate(d.Content, 1000)))
+		}
+		if d.MIMEType != "" { // FC-4
+			out = append(out, fmt.Sprintf("[MIME: %s]", d.MIMEType))
+		}
+	case "reasoning":
+		if d.Thinking != "" {
+			out = append(out, fmt.Sprintf("[Reasoning] %s", d.Thinking))
+		}
+		if d.RedactedThinking { // FC-2
+			out = append(out, "[Redacted Thinking]")
+		}
+	case "finish":
+		if d.Reason != "" { // FC-1
+			out = append(out, fmt.Sprintf("[Finish: %s]", d.Reason))
+		}
+	case "image_url":
+		if d.URL != "" { // FC-5
+			out = append(out, fmt.Sprintf("[Image: %s]", d.URL))
+		}
+	case "binary":
+		if d.BinaryMIME != "" { // FC-6
+			out = append(out, fmt.Sprintf("[Binary: %s]", d.BinaryMIME))
+		}
+		if d.BinaryCaption != "" {
+			out = append(out, d.BinaryCaption)
+		}
+	}
+	return out
 }
 
 func runeAwareTruncate(s string, maxRunes int) string {
@@ -77,20 +98,45 @@ type MessagePart struct {
 }
 
 // partData holds the union of fields for all content part types.
+// FC-1 through FC-6: All fields from Volt's part data types are included.
 type partData struct {
 	// TextContent
 	Text string `json:"text,omitempty"`
-	// ToolCall
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name,omitempty"`
-	Input    string `json:"input,omitempty"`
-	Finished bool   `json:"finished,omitempty"`
-	// ToolResult
+
+	// ToolCall (FC-3: added ProviderExecuted)
+	ID               string `json:"id,omitempty"`
+	Name             string `json:"name,omitempty"`
+	Input            string `json:"input,omitempty"`
+	Finished         bool   `json:"finished,omitempty"`
+	ProviderExecuted bool   `json:"provider_executed,omitempty"` // FC-3
+
+	// ToolResult (FC-4: added Data, MIMEType, Metadata)
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	Content    string `json:"content,omitempty"`
 	IsError    bool   `json:"is_error,omitempty"`
-	// ReasoningContent — field is "thinking", NOT "text"
-	Thinking string `json:"thinking,omitempty"`
+	Data       string `json:"data,omitempty"`      // FC-4: binary/large tool result data
+	MIMEType   string `json:"mime_type,omitempty"` // FC-4: MIME type of Data
+	Metadata   string `json:"metadata,omitempty"`  // FC-4: arbitrary metadata JSON
+
+	// ReasoningContent (FC-2: added Signature, RedactedThinking)
+	Thinking         string `json:"thinking,omitempty"`
+	Signature        string `json:"signature,omitempty"`         // FC-2
+	RedactedThinking bool   `json:"redacted_thinking,omitempty"` // FC-2
+
+	// Finish (FC-1: added Reason, Time, Message, Details)
+	Reason  string `json:"reason,omitempty"`  // FC-1: stop reason (e.g., "end_turn", "max_tokens")
+	Time    int64  `json:"time,omitempty"`    // FC-1: finish timestamp
+	Message string `json:"message,omitempty"` // FC-1: optional finish message
+	Details string `json:"details,omitempty"` // FC-1: optional finish details
+
+	// ImageURLContent (FC-5)
+	URL    string `json:"url,omitempty"`    // FC-5: image URL
+	Detail string `json:"detail,omitempty"` // FC-5: detail level ("auto", "high", "low")
+
+	// BinaryContent (FC-6)
+	BinaryData    string `json:"binary_data,omitempty"`    // FC-6: base64-encoded binary
+	BinaryMIME    string `json:"binary_mime,omitempty"`    // FC-6: MIME type of binary content
+	BinaryCaption string `json:"binary_caption,omitempty"` // FC-6: optional caption
 }
 
 // FormatLargeFileForContext returns the marker string for large file references.

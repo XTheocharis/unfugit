@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/crush/internal/db"
@@ -360,6 +361,165 @@ func (s *SQLiteStore) GetLargeFile(ctx context.Context, fileID string) (*LargeFi
 		TokenCount:   row.TokenCount,
 		CreatedAt:    row.CreatedAt,
 	}, nil
+}
+
+func (s *SQLiteStore) GetAllSummaries(ctx context.Context, sessionID string) ([]Summary, error) {
+	rows, err := s.q.LCMGetAllSummaries(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]Summary, len(rows))
+	for i, row := range rows {
+		var fileIDs []string
+		if err := json.Unmarshal([]byte(row.FileIds), &fileIDs); err != nil {
+			fileIDs = []string{}
+		}
+		summaries[i] = Summary{
+			SummaryID:  row.SummaryID,
+			SessionID:  row.SessionID,
+			Kind:       row.Kind,
+			Content:    row.Content,
+			TokenCount: row.TokenCount,
+			FileIDs:    fileIDs,
+		}
+	}
+	return summaries, nil
+}
+
+func (s *SQLiteStore) DeleteSummary(ctx context.Context, summaryID string) error {
+	return s.q.LCMDeleteSummary(ctx, summaryID)
+}
+
+func (s *SQLiteStore) GetChildSummaryIDs(ctx context.Context, summaryID string) ([]string, error) {
+	return s.q.LCMGetChildSummaryIDs(ctx, summaryID)
+}
+
+func (s *SQLiteStore) GetCoveringSummary(ctx context.Context, sessionID string, minMessages int) (*Summary, error) {
+	row, err := s.q.LCMGetCoveringSummaryForMessages(ctx, db.LCMGetCoveringSummaryForMessagesParams{
+		SessionID:   sessionID,
+		MinMessages: int64(minMessages),
+	})
+	if err != nil {
+		return nil, err
+	}
+	var fileIDs []string
+	if err := json.Unmarshal([]byte(row.FileIds), &fileIDs); err != nil {
+		fileIDs = []string{}
+	}
+	return &Summary{
+		SummaryID:  row.SummaryID,
+		SessionID:  row.SessionID,
+		Kind:       row.Kind,
+		Content:    row.Content,
+		TokenCount: row.TokenCount,
+		FileIDs:    fileIDs,
+	}, nil
+}
+
+func (s *SQLiteStore) GetAncestorSessionIDs(ctx context.Context, summaryID string) ([]string, error) {
+	return s.q.LCMGetSummaryMessageSessionIDs(ctx, summaryID)
+}
+
+func (s *SQLiteStore) GetSessionConfig(ctx context.Context, sessionID string) (*SessionConfig, error) {
+	row, err := s.q.LCMGetSessionConfig(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	config := &SessionConfig{
+		SessionID:         row.SessionID,
+		ModelName:         row.ModelName,
+		ModelCtxMaxTokens: row.ModelCtxMaxTokens,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+	}
+	if row.CtxCutoffThreshold.Valid {
+		v := int(row.CtxCutoffThreshold.Int64)
+		config.CtxCutoffThreshold = &v
+	}
+	return config, nil
+}
+
+func (s *SQLiteStore) SetSessionConfig(ctx context.Context, config *SessionConfig) error {
+	var threshold sql.NullInt64
+	if config.CtxCutoffThreshold != nil {
+		threshold = sql.NullInt64{Int64: int64(*config.CtxCutoffThreshold), Valid: true}
+	}
+	return s.q.LCMUpsertSessionConfig(ctx, db.LCMUpsertSessionConfigParams{
+		SessionID:          config.SessionID,
+		ModelName:          config.ModelName,
+		ModelCtxMaxTokens:  config.ModelCtxMaxTokens,
+		CtxCutoffThreshold: threshold,
+	})
+}
+
+// SearchMessages performs FTS5 full-text search across session messages (DB-23).
+// Implemented with raw SQL because sqlc cannot introspect FTS5 virtual tables.
+func (s *SQLiteStore) SearchMessages(ctx context.Context, sessionID string, query string, limit int) ([]LCMMessage, error) {
+	safe := "\"" + strings.ReplaceAll(query, "\"", " ") + "\""
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT m.id, m.session_id, m.role, m.parts, m.created_at
+		 FROM messages_fts fts
+		 JOIN messages m ON m.rowid = fts.rowid
+		 WHERE messages_fts MATCH ?
+		 AND m.session_id = ?
+		 ORDER BY m.created_at DESC
+		 LIMIT ?`, safe, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []LCMMessage
+	for rows.Next() {
+		var msg LCMMessage
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+			return nil, err
+		}
+		msg.TokenCount = EstimateTokenCount(msg.Content)
+		messages = append(messages, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+// SearchMessagesRegex performs regex-based search on message content (DB-24).
+// SQLite's built-in REGEXP requires a driver-specific user function, so this
+// fetches candidate messages with a session filter and applies Go's regexp
+// for matching. Results are capped at limit.
+func (s *SQLiteStore) SearchMessagesRegex(ctx context.Context, sessionID string, pattern string, limit int) ([]LCMMessage, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT m.id, m.session_id, m.role, m.parts, m.created_at
+		 FROM messages m
+		 WHERE m.session_id = ?
+		 ORDER BY m.created_at DESC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []LCMMessage
+	for rows.Next() && len(messages) < limit {
+		var msg LCMMessage
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+			return nil, err
+		}
+		if re.MatchString(msg.Content) {
+			msg.TokenCount = EstimateTokenCount(msg.Content)
+			messages = append(messages, msg)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 // SearchSummaries performs FTS5 search. Implemented with raw SQL because

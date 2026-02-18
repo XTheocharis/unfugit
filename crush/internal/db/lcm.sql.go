@@ -474,3 +474,211 @@ func (q *Queries) LCMInsertSummaryParent(ctx context.Context, arg LCMInsertSumma
 	_, err := q.exec(ctx, q.lCMInsertSummaryParentStmt, lCMInsertSummaryParent, arg.SummaryID, arg.ParentSummaryID, arg.Ord)
 	return err
 }
+
+// --- DB-26: LCMGetChildSummaryIDs ---
+
+const lCMGetChildSummaryIDs = `-- name: LCMGetChildSummaryIDs :many
+SELECT summary_id FROM lcm_summary_parents
+WHERE parent_summary_id = ? ORDER BY ord
+`
+
+func (q *Queries) LCMGetChildSummaryIDs(ctx context.Context, parentSummaryID string) ([]string, error) {
+	rows, err := q.query(ctx, q.lCMGetChildSummaryIDsStmt, lCMGetChildSummaryIDs, parentSummaryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var summaryID string
+		if err := rows.Scan(&summaryID); err != nil {
+			return nil, err
+		}
+		items = append(items, summaryID)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// --- DB-25: LCMGetCoveringSummaryForMessages ---
+
+const lCMGetCoveringSummaryForMessages = `-- name: LCMGetCoveringSummaryForMessages :one
+SELECT s.summary_id, s.session_id, s.kind, s.content, s.token_count, s.file_ids, s.created_at
+FROM lcm_summaries s
+WHERE s.session_id = ?
+  AND s.kind = 'leaf'
+  AND (
+    SELECT COUNT(DISTINCT sm.message_id)
+    FROM lcm_summary_messages sm
+    WHERE sm.summary_id = s.summary_id
+  ) >= ?
+ORDER BY s.created_at DESC
+LIMIT 1
+`
+
+type LCMGetCoveringSummaryForMessagesParams struct {
+	SessionID    string `json:"session_id"`
+	MinMessages  int64  `json:"min_messages"`
+}
+
+func (q *Queries) LCMGetCoveringSummaryForMessages(ctx context.Context, arg LCMGetCoveringSummaryForMessagesParams) (LCMGetSummaryByIDRow, error) {
+	row := q.queryRow(ctx, q.lCMGetCoveringSummaryForMessagesStmt, lCMGetCoveringSummaryForMessages, arg.SessionID, arg.MinMessages)
+	var i LCMGetSummaryByIDRow
+	err := row.Scan(
+		&i.SummaryID,
+		&i.SessionID,
+		&i.Kind,
+		&i.Content,
+		&i.TokenCount,
+		&i.FileIds,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+// --- SQ-2: LCMGetAllSummaries ---
+
+const lCMGetAllSummaries = `-- name: LCMGetAllSummaries :many
+SELECT summary_id, session_id, kind, content, token_count, file_ids, created_at
+FROM lcm_summaries
+WHERE session_id = ?
+ORDER BY created_at
+`
+
+func (q *Queries) LCMGetAllSummaries(ctx context.Context, sessionID string) ([]LCMGetSummaryByIDRow, error) {
+	rows, err := q.query(ctx, q.lCMGetAllSummariesStmt, lCMGetAllSummaries, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LCMGetSummaryByIDRow{}
+	for rows.Next() {
+		var i LCMGetSummaryByIDRow
+		if err := rows.Scan(
+			&i.SummaryID,
+			&i.SessionID,
+			&i.Kind,
+			&i.Content,
+			&i.TokenCount,
+			&i.FileIds,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// --- SQ-2: LCMDeleteSummary ---
+
+const lCMDeleteSummary = `-- name: LCMDeleteSummary :exec
+DELETE FROM lcm_summaries WHERE summary_id = ?
+`
+
+func (q *Queries) LCMDeleteSummary(ctx context.Context, summaryID string) error {
+	_, err := q.exec(ctx, q.lCMDeleteSummaryStmt, lCMDeleteSummary, summaryID)
+	return err
+}
+
+// --- DB-15/DB-16: LCMGetSessionConfig ---
+
+const lCMGetSessionConfig = `-- name: LCMGetSessionConfig :one
+SELECT session_id, model_name, model_ctx_max_tokens, ctx_cutoff_threshold, created_at, updated_at
+FROM lcm_session_config WHERE session_id = ?
+`
+
+type LcmSessionConfig struct {
+	SessionID          string        `json:"session_id"`
+	ModelName          string        `json:"model_name"`
+	ModelCtxMaxTokens  int64         `json:"model_ctx_max_tokens"`
+	CtxCutoffThreshold sql.NullInt64 `json:"ctx_cutoff_threshold"`
+	CreatedAt          int64         `json:"created_at"`
+	UpdatedAt          int64         `json:"updated_at"`
+}
+
+func (q *Queries) LCMGetSessionConfig(ctx context.Context, sessionID string) (LcmSessionConfig, error) {
+	row := q.queryRow(ctx, q.lCMGetSessionConfigStmt, lCMGetSessionConfig, sessionID)
+	var i LcmSessionConfig
+	err := row.Scan(
+		&i.SessionID,
+		&i.ModelName,
+		&i.ModelCtxMaxTokens,
+		&i.CtxCutoffThreshold,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+// --- DB-15/DB-16: LCMUpsertSessionConfig ---
+
+const lCMUpsertSessionConfig = `-- name: LCMUpsertSessionConfig :exec
+INSERT INTO lcm_session_config (session_id, model_name, model_ctx_max_tokens, ctx_cutoff_threshold)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(session_id) DO UPDATE SET
+    model_name = excluded.model_name,
+    model_ctx_max_tokens = excluded.model_ctx_max_tokens,
+    ctx_cutoff_threshold = excluded.ctx_cutoff_threshold,
+    updated_at = strftime('%s','now')
+`
+
+type LCMUpsertSessionConfigParams struct {
+	SessionID          string        `json:"session_id"`
+	ModelName          string        `json:"model_name"`
+	ModelCtxMaxTokens  int64         `json:"model_ctx_max_tokens"`
+	CtxCutoffThreshold sql.NullInt64 `json:"ctx_cutoff_threshold"`
+}
+
+func (q *Queries) LCMUpsertSessionConfig(ctx context.Context, arg LCMUpsertSessionConfigParams) error {
+	_, err := q.exec(ctx, q.lCMUpsertSessionConfigStmt, lCMUpsertSessionConfig,
+		arg.SessionID,
+		arg.ModelName,
+		arg.ModelCtxMaxTokens,
+		arg.CtxCutoffThreshold,
+	)
+	return err
+}
+
+// --- DB-27: LCMGetSummaryMessageSessionIDs ---
+
+const lCMGetSummaryMessageSessionIDs = `-- name: LCMGetSummaryMessageSessionIDs :many
+SELECT DISTINCT m.session_id
+FROM lcm_summary_messages sm
+JOIN messages m ON m.id = sm.message_id
+WHERE sm.summary_id = ?
+`
+
+func (q *Queries) LCMGetSummaryMessageSessionIDs(ctx context.Context, summaryID string) ([]string, error) {
+	rows, err := q.query(ctx, q.lCMGetSummaryMessageSessionIDsStmt, lCMGetSummaryMessageSessionIDs, summaryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var sessionID string
+		if err := rows.Scan(&sessionID); err != nil {
+			return nil, err
+		}
+		items = append(items, sessionID)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
