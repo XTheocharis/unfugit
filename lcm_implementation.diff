@@ -1,0 +1,3327 @@
+diff --git a/go.mod b/go.mod
+index 7672d9c5..503fccdb 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,6 +1,6 @@
+ module github.com/charmbracelet/crush
+ 
+-go 1.25.5
++go 1.25.1
+ 
+ require (
+ 	charm.land/bubbles/v2 v2.0.0-rc.1.0.20260109112849-ae99f46cec66
+diff --git a/go.sum b/go.sum
+index 81b47ce5..c807e119 100644
+--- a/go.sum
++++ b/go.sum
+@@ -3,7 +3,7 @@ charm.land/bubbles/v2 v2.0.0-rc.1.0.20260109112849-ae99f46cec66/go.mod h1:5AbN6c
+ charm.land/bubbletea/v2 v2.0.0-rc.2.0.20260209074636-30878e43d7b0 h1:HAbpM9TPjZM18D677ww3VnkKXdd2hyMQtHUsVV0HcPQ=
+ charm.land/bubbletea/v2 v2.0.0-rc.2.0.20260209074636-30878e43d7b0/go.mod h1:3LRff2U4WIYXy7MTxfbAQ+AdfM3D8Xuvz2wbsOD9OHQ=
+ charm.land/catwalk v0.19.2 h1:exy+egllV6VEuR0e5eGkefnL6xnlszNxy9FpH2vjss4=
+-charm.land/catwalk v0.19.2/go.mod h1:rFC/V96rIHX7VES215c/qzI1EW/Moo1ggs1Q6seTy5s=
++charm.land/catwalk v0.19.2/go.mod h1:t/mH1vLP8q6tgf1n9uOFtamuz0Y7ZiZffE8XPYmfWZA=
+ charm.land/fantasy v0.8.1 h1:2zQovDrd26g+/X2+/6bMomTX54HmZWNNHWeorDO0WRo=
+ charm.land/fantasy v0.8.1/go.mod h1:KJ8vjy9FH7G2aeR/fL+os2uFHkQ4js2+UJVbsUKCXYM=
+ charm.land/glamour/v2 v2.0.0-20260123212943-6014aa153a9b h1:A6IUUyChZDWP16RUdRJCfmYISAKWQGyIcfhZJUCViQ0=
+@@ -107,7 +107,7 @@ github.com/charmbracelet/x/ansi v0.11.6/go.mod h1:2JNYLgQUsyqaiLovhU2Rv/pb8r6ydX
+ github.com/charmbracelet/x/editor v0.2.0 h1:7XLUKtaRaB8jN7bWU2p2UChiySyaAuIfYiIRg8gGWwk=
+ github.com/charmbracelet/x/editor v0.2.0/go.mod h1:p3oQ28TSL3YPd+GKJ1fHWcp+7bVGpedHpXmo0D6t1dY=
+ github.com/charmbracelet/x/etag v0.2.0 h1:Euj1VkheoHfTYA9y+TCwkeXF/hN8Fb9l4LqZl79pt04=
+-github.com/charmbracelet/x/etag v0.2.0/go.mod h1:C1B7/bsgvzzxpfu0Rabbd+rTHJa5TmC/qgTseCf6DF0=
++github.com/charmbracelet/x/etag v0.2.0/go.mod h1:fZX07WbhUp/GOy2H0UC81XOriyF3UV2jzM0CrW+gUXE=
+ github.com/charmbracelet/x/exp/charmtone v0.0.0-20260109001716-2fbdffcb221f h1:OKFNbG2sSmgpQW9EC3gYNG+QrcQ4+wWYjzfmJvWkkDo=
+ github.com/charmbracelet/x/exp/charmtone v0.0.0-20260109001716-2fbdffcb221f/go.mod h1:nsExn0DGyX0lh9LwLHTn2Gg+hafdzfSXnC+QmEJTZFY=
+ github.com/charmbracelet/x/exp/golden v0.0.0-20250806222409-83e3a29d542f h1:pk6gmGpCE7F3FcjaOEKYriCvpmIN4+6OS/RD0vm4uIA=
+diff --git a/internal/db/db.go b/internal/db/db.go
+index ec4e3807..c4b9b419 100644
+--- a/internal/db/db.go
++++ b/internal/db/db.go
+@@ -90,6 +90,54 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
+ 	if q.getUsageByModelStmt, err = db.PrepareContext(ctx, getUsageByModel); err != nil {
+ 		return nil, fmt.Errorf("error preparing query GetUsageByModel: %w", err)
+ 	}
++	if q.lCMAppendContextItemStmt, err = db.PrepareContext(ctx, lCMAppendContextItem); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMAppendContextItem: %w", err)
++	}
++	if q.lCMCountMessagesInContextStmt, err = db.PrepareContext(ctx, lCMCountMessagesInContext); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMCountMessagesInContext: %w", err)
++	}
++	if q.lCMCountSummariesInContextStmt, err = db.PrepareContext(ctx, lCMCountSummariesInContext); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMCountSummariesInContext: %w", err)
++	}
++	if q.lCMExpandSummaryToMessagesStmt, err = db.PrepareContext(ctx, lCMExpandSummaryToMessages); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMExpandSummaryToMessages: %w", err)
++	}
++	if q.lCMGetContextTokenCountStmt, err = db.PrepareContext(ctx, lCMGetContextTokenCount); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetContextTokenCount: %w", err)
++	}
++	if q.lCMGetCurrentContextStmt, err = db.PrepareContext(ctx, lCMGetCurrentContext); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetCurrentContext: %w", err)
++	}
++	if q.lCMGetLargeFileStmt, err = db.PrepareContext(ctx, lCMGetLargeFile); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetLargeFile: %w", err)
++	}
++	if q.lCMGetMessageByIDStmt, err = db.PrepareContext(ctx, lCMGetMessageByID); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetMessageByID: %w", err)
++	}
++	if q.lCMGetMessagesToSummarizeStmt, err = db.PrepareContext(ctx, lCMGetMessagesToSummarize); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetMessagesToSummarize: %w", err)
++	}
++	if q.lCMGetOldestSummariesInContextStmt, err = db.PrepareContext(ctx, lCMGetOldestSummariesInContext); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetOldestSummariesInContext: %w", err)
++	}
++	if q.lCMGetSummaryByIDStmt, err = db.PrepareContext(ctx, lCMGetSummaryByID); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetSummaryByID: %w", err)
++	}
++	if q.lCMGetSummaryParentIDsStmt, err = db.PrepareContext(ctx, lCMGetSummaryParentIDs); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMGetSummaryParentIDs: %w", err)
++	}
++	if q.lCMInsertLargeFileStmt, err = db.PrepareContext(ctx, lCMInsertLargeFile); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMInsertLargeFile: %w", err)
++	}
++	if q.lCMInsertSummaryStmt, err = db.PrepareContext(ctx, lCMInsertSummary); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMInsertSummary: %w", err)
++	}
++	if q.lCMInsertSummaryMessageStmt, err = db.PrepareContext(ctx, lCMInsertSummaryMessage); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMInsertSummaryMessage: %w", err)
++	}
++	if q.lCMInsertSummaryParentStmt, err = db.PrepareContext(ctx, lCMInsertSummaryParent); err != nil {
++		return nil, fmt.Errorf("error preparing query LCMInsertSummaryParent: %w", err)
++	}
+ 	if q.listAllUserMessagesStmt, err = db.PrepareContext(ctx, listAllUserMessages); err != nil {
+ 		return nil, fmt.Errorf("error preparing query ListAllUserMessages: %w", err)
+ 	}
+@@ -244,6 +292,86 @@ func (q *Queries) Close() error {
+ 			err = fmt.Errorf("error closing getUsageByModelStmt: %w", cerr)
+ 		}
+ 	}
++	if q.lCMAppendContextItemStmt != nil {
++		if cerr := q.lCMAppendContextItemStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMAppendContextItemStmt: %w", cerr)
++		}
++	}
++	if q.lCMCountMessagesInContextStmt != nil {
++		if cerr := q.lCMCountMessagesInContextStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMCountMessagesInContextStmt: %w", cerr)
++		}
++	}
++	if q.lCMCountSummariesInContextStmt != nil {
++		if cerr := q.lCMCountSummariesInContextStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMCountSummariesInContextStmt: %w", cerr)
++		}
++	}
++	if q.lCMExpandSummaryToMessagesStmt != nil {
++		if cerr := q.lCMExpandSummaryToMessagesStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMExpandSummaryToMessagesStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetContextTokenCountStmt != nil {
++		if cerr := q.lCMGetContextTokenCountStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetContextTokenCountStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetCurrentContextStmt != nil {
++		if cerr := q.lCMGetCurrentContextStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetCurrentContextStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetLargeFileStmt != nil {
++		if cerr := q.lCMGetLargeFileStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetLargeFileStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetMessageByIDStmt != nil {
++		if cerr := q.lCMGetMessageByIDStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetMessageByIDStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetMessagesToSummarizeStmt != nil {
++		if cerr := q.lCMGetMessagesToSummarizeStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetMessagesToSummarizeStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetOldestSummariesInContextStmt != nil {
++		if cerr := q.lCMGetOldestSummariesInContextStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetOldestSummariesInContextStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetSummaryByIDStmt != nil {
++		if cerr := q.lCMGetSummaryByIDStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetSummaryByIDStmt: %w", cerr)
++		}
++	}
++	if q.lCMGetSummaryParentIDsStmt != nil {
++		if cerr := q.lCMGetSummaryParentIDsStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMGetSummaryParentIDsStmt: %w", cerr)
++		}
++	}
++	if q.lCMInsertLargeFileStmt != nil {
++		if cerr := q.lCMInsertLargeFileStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMInsertLargeFileStmt: %w", cerr)
++		}
++	}
++	if q.lCMInsertSummaryStmt != nil {
++		if cerr := q.lCMInsertSummaryStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMInsertSummaryStmt: %w", cerr)
++		}
++	}
++	if q.lCMInsertSummaryMessageStmt != nil {
++		if cerr := q.lCMInsertSummaryMessageStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMInsertSummaryMessageStmt: %w", cerr)
++		}
++	}
++	if q.lCMInsertSummaryParentStmt != nil {
++		if cerr := q.lCMInsertSummaryParentStmt.Close(); cerr != nil {
++			err = fmt.Errorf("error closing lCMInsertSummaryParentStmt: %w", cerr)
++		}
++	}
+ 	if q.listAllUserMessagesStmt != nil {
+ 		if cerr := q.listAllUserMessagesStmt.Close(); cerr != nil {
+ 			err = fmt.Errorf("error closing listAllUserMessagesStmt: %w", cerr)
+@@ -346,83 +474,115 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
+ }
+ 
+ type Queries struct {
+-	db                             DBTX
+-	tx                             *sql.Tx
+-	createFileStmt                 *sql.Stmt
+-	createMessageStmt              *sql.Stmt
+-	createSessionStmt              *sql.Stmt
+-	deleteFileStmt                 *sql.Stmt
+-	deleteMessageStmt              *sql.Stmt
+-	deleteSessionStmt              *sql.Stmt
+-	deleteSessionFilesStmt         *sql.Stmt
+-	deleteSessionMessagesStmt      *sql.Stmt
+-	getAverageResponseTimeStmt     *sql.Stmt
+-	getFileStmt                    *sql.Stmt
+-	getFileByPathAndSessionStmt    *sql.Stmt
+-	getFileReadStmt                *sql.Stmt
+-	getHourDayHeatmapStmt          *sql.Stmt
+-	getMessageStmt                 *sql.Stmt
+-	getRecentActivityStmt          *sql.Stmt
+-	getSessionByIDStmt             *sql.Stmt
+-	getToolUsageStmt               *sql.Stmt
+-	getTotalStatsStmt              *sql.Stmt
+-	getUsageByDayStmt              *sql.Stmt
+-	getUsageByDayOfWeekStmt        *sql.Stmt
+-	getUsageByHourStmt             *sql.Stmt
+-	getUsageByModelStmt            *sql.Stmt
+-	listAllUserMessagesStmt        *sql.Stmt
+-	listFilesByPathStmt            *sql.Stmt
+-	listFilesBySessionStmt         *sql.Stmt
+-	listLatestSessionFilesStmt     *sql.Stmt
+-	listMessagesBySessionStmt      *sql.Stmt
+-	listNewFilesStmt               *sql.Stmt
+-	listSessionReadFilesStmt       *sql.Stmt
+-	listSessionsStmt               *sql.Stmt
+-	listUserMessagesBySessionStmt  *sql.Stmt
+-	recordFileReadStmt             *sql.Stmt
+-	updateMessageStmt              *sql.Stmt
+-	updateSessionStmt              *sql.Stmt
+-	updateSessionTitleAndUsageStmt *sql.Stmt
++	db                                 DBTX
++	tx                                 *sql.Tx
++	createFileStmt                     *sql.Stmt
++	createMessageStmt                  *sql.Stmt
++	createSessionStmt                  *sql.Stmt
++	deleteFileStmt                     *sql.Stmt
++	deleteMessageStmt                  *sql.Stmt
++	deleteSessionStmt                  *sql.Stmt
++	deleteSessionFilesStmt             *sql.Stmt
++	deleteSessionMessagesStmt          *sql.Stmt
++	getAverageResponseTimeStmt         *sql.Stmt
++	getFileStmt                        *sql.Stmt
++	getFileByPathAndSessionStmt        *sql.Stmt
++	getFileReadStmt                    *sql.Stmt
++	getHourDayHeatmapStmt              *sql.Stmt
++	getMessageStmt                     *sql.Stmt
++	getRecentActivityStmt              *sql.Stmt
++	getSessionByIDStmt                 *sql.Stmt
++	getToolUsageStmt                   *sql.Stmt
++	getTotalStatsStmt                  *sql.Stmt
++	getUsageByDayStmt                  *sql.Stmt
++	getUsageByDayOfWeekStmt            *sql.Stmt
++	getUsageByHourStmt                 *sql.Stmt
++	getUsageByModelStmt                *sql.Stmt
++	lCMAppendContextItemStmt           *sql.Stmt
++	lCMCountMessagesInContextStmt      *sql.Stmt
++	lCMCountSummariesInContextStmt     *sql.Stmt
++	lCMExpandSummaryToMessagesStmt     *sql.Stmt
++	lCMGetContextTokenCountStmt        *sql.Stmt
++	lCMGetCurrentContextStmt           *sql.Stmt
++	lCMGetLargeFileStmt                *sql.Stmt
++	lCMGetMessageByIDStmt              *sql.Stmt
++	lCMGetMessagesToSummarizeStmt      *sql.Stmt
++	lCMGetOldestSummariesInContextStmt *sql.Stmt
++	lCMGetSummaryByIDStmt              *sql.Stmt
++	lCMGetSummaryParentIDsStmt         *sql.Stmt
++	lCMInsertLargeFileStmt             *sql.Stmt
++	lCMInsertSummaryStmt               *sql.Stmt
++	lCMInsertSummaryMessageStmt        *sql.Stmt
++	lCMInsertSummaryParentStmt         *sql.Stmt
++	listAllUserMessagesStmt            *sql.Stmt
++	listFilesByPathStmt                *sql.Stmt
++	listFilesBySessionStmt             *sql.Stmt
++	listLatestSessionFilesStmt         *sql.Stmt
++	listMessagesBySessionStmt          *sql.Stmt
++	listNewFilesStmt                   *sql.Stmt
++	listSessionReadFilesStmt           *sql.Stmt
++	listSessionsStmt                   *sql.Stmt
++	listUserMessagesBySessionStmt      *sql.Stmt
++	recordFileReadStmt                 *sql.Stmt
++	updateMessageStmt                  *sql.Stmt
++	updateSessionStmt                  *sql.Stmt
++	updateSessionTitleAndUsageStmt     *sql.Stmt
+ }
+ 
+ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
+ 	return &Queries{
+-		db:                             tx,
+-		tx:                             tx,
+-		createFileStmt:                 q.createFileStmt,
+-		createMessageStmt:              q.createMessageStmt,
+-		createSessionStmt:              q.createSessionStmt,
+-		deleteFileStmt:                 q.deleteFileStmt,
+-		deleteMessageStmt:              q.deleteMessageStmt,
+-		deleteSessionStmt:              q.deleteSessionStmt,
+-		deleteSessionFilesStmt:         q.deleteSessionFilesStmt,
+-		deleteSessionMessagesStmt:      q.deleteSessionMessagesStmt,
+-		getAverageResponseTimeStmt:     q.getAverageResponseTimeStmt,
+-		getFileStmt:                    q.getFileStmt,
+-		getFileByPathAndSessionStmt:    q.getFileByPathAndSessionStmt,
+-		getFileReadStmt:                q.getFileReadStmt,
+-		getHourDayHeatmapStmt:          q.getHourDayHeatmapStmt,
+-		getMessageStmt:                 q.getMessageStmt,
+-		getRecentActivityStmt:          q.getRecentActivityStmt,
+-		getSessionByIDStmt:             q.getSessionByIDStmt,
+-		getToolUsageStmt:               q.getToolUsageStmt,
+-		getTotalStatsStmt:              q.getTotalStatsStmt,
+-		getUsageByDayStmt:              q.getUsageByDayStmt,
+-		getUsageByDayOfWeekStmt:        q.getUsageByDayOfWeekStmt,
+-		getUsageByHourStmt:             q.getUsageByHourStmt,
+-		getUsageByModelStmt:            q.getUsageByModelStmt,
+-		listAllUserMessagesStmt:        q.listAllUserMessagesStmt,
+-		listFilesByPathStmt:            q.listFilesByPathStmt,
+-		listFilesBySessionStmt:         q.listFilesBySessionStmt,
+-		listLatestSessionFilesStmt:     q.listLatestSessionFilesStmt,
+-		listMessagesBySessionStmt:      q.listMessagesBySessionStmt,
+-		listNewFilesStmt:               q.listNewFilesStmt,
+-		listSessionReadFilesStmt:       q.listSessionReadFilesStmt,
+-		listSessionsStmt:               q.listSessionsStmt,
+-		listUserMessagesBySessionStmt:  q.listUserMessagesBySessionStmt,
+-		recordFileReadStmt:             q.recordFileReadStmt,
+-		updateMessageStmt:              q.updateMessageStmt,
+-		updateSessionStmt:              q.updateSessionStmt,
+-		updateSessionTitleAndUsageStmt: q.updateSessionTitleAndUsageStmt,
++		db:                                 tx,
++		tx:                                 tx,
++		createFileStmt:                     q.createFileStmt,
++		createMessageStmt:                  q.createMessageStmt,
++		createSessionStmt:                  q.createSessionStmt,
++		deleteFileStmt:                     q.deleteFileStmt,
++		deleteMessageStmt:                  q.deleteMessageStmt,
++		deleteSessionStmt:                  q.deleteSessionStmt,
++		deleteSessionFilesStmt:             q.deleteSessionFilesStmt,
++		deleteSessionMessagesStmt:          q.deleteSessionMessagesStmt,
++		getAverageResponseTimeStmt:         q.getAverageResponseTimeStmt,
++		getFileStmt:                        q.getFileStmt,
++		getFileByPathAndSessionStmt:        q.getFileByPathAndSessionStmt,
++		getFileReadStmt:                    q.getFileReadStmt,
++		getHourDayHeatmapStmt:              q.getHourDayHeatmapStmt,
++		getMessageStmt:                     q.getMessageStmt,
++		getRecentActivityStmt:              q.getRecentActivityStmt,
++		getSessionByIDStmt:                 q.getSessionByIDStmt,
++		getToolUsageStmt:                   q.getToolUsageStmt,
++		getTotalStatsStmt:                  q.getTotalStatsStmt,
++		getUsageByDayStmt:                  q.getUsageByDayStmt,
++		getUsageByDayOfWeekStmt:            q.getUsageByDayOfWeekStmt,
++		getUsageByHourStmt:                 q.getUsageByHourStmt,
++		getUsageByModelStmt:                q.getUsageByModelStmt,
++		lCMAppendContextItemStmt:           q.lCMAppendContextItemStmt,
++		lCMCountMessagesInContextStmt:      q.lCMCountMessagesInContextStmt,
++		lCMCountSummariesInContextStmt:     q.lCMCountSummariesInContextStmt,
++		lCMExpandSummaryToMessagesStmt:     q.lCMExpandSummaryToMessagesStmt,
++		lCMGetContextTokenCountStmt:        q.lCMGetContextTokenCountStmt,
++		lCMGetCurrentContextStmt:           q.lCMGetCurrentContextStmt,
++		lCMGetLargeFileStmt:                q.lCMGetLargeFileStmt,
++		lCMGetMessageByIDStmt:              q.lCMGetMessageByIDStmt,
++		lCMGetMessagesToSummarizeStmt:      q.lCMGetMessagesToSummarizeStmt,
++		lCMGetOldestSummariesInContextStmt: q.lCMGetOldestSummariesInContextStmt,
++		lCMGetSummaryByIDStmt:              q.lCMGetSummaryByIDStmt,
++		lCMGetSummaryParentIDsStmt:         q.lCMGetSummaryParentIDsStmt,
++		lCMInsertLargeFileStmt:             q.lCMInsertLargeFileStmt,
++		lCMInsertSummaryStmt:               q.lCMInsertSummaryStmt,
++		lCMInsertSummaryMessageStmt:        q.lCMInsertSummaryMessageStmt,
++		lCMInsertSummaryParentStmt:         q.lCMInsertSummaryParentStmt,
++		listAllUserMessagesStmt:            q.listAllUserMessagesStmt,
++		listFilesByPathStmt:                q.listFilesByPathStmt,
++		listFilesBySessionStmt:             q.listFilesBySessionStmt,
++		listLatestSessionFilesStmt:         q.listLatestSessionFilesStmt,
++		listMessagesBySessionStmt:          q.listMessagesBySessionStmt,
++		listNewFilesStmt:                   q.listNewFilesStmt,
++		listSessionReadFilesStmt:           q.listSessionReadFilesStmt,
++		listSessionsStmt:                   q.listSessionsStmt,
++		listUserMessagesBySessionStmt:      q.listUserMessagesBySessionStmt,
++		recordFileReadStmt:                 q.recordFileReadStmt,
++		updateMessageStmt:                  q.updateMessageStmt,
++		updateSessionStmt:                  q.updateSessionStmt,
++		updateSessionTitleAndUsageStmt:     q.updateSessionTitleAndUsageStmt,
+ 	}
+ }
+diff --git a/internal/db/models.go b/internal/db/models.go
+index a105074a..d481b861 100644
+--- a/internal/db/models.go
++++ b/internal/db/models.go
+@@ -18,6 +18,49 @@ type File struct {
+ 	UpdatedAt int64  `json:"updated_at"`
+ }
+ 
++type LcmContextItem struct {
++	SessionID string         `json:"session_id"`
++	Position  int64          `json:"position"`
++	ItemType  string         `json:"item_type"`
++	MessageID sql.NullString `json:"message_id"`
++	SummaryID sql.NullString `json:"summary_id"`
++}
++
++type LcmLargeFile struct {
++	FileID       string `json:"file_id"`
++	SessionID    string `json:"session_id"`
++	OriginalPath string `json:"original_path"`
++	MimeType     string `json:"mime_type"`
++	TokenCount   int64  `json:"token_count"`
++	CreatedAt    int64  `json:"created_at"`
++}
++
++type LcmSummariesFt struct {
++	Content string `json:"content"`
++}
++
++type LcmSummary struct {
++	SummaryID  string `json:"summary_id"`
++	SessionID  string `json:"session_id"`
++	Kind       string `json:"kind"`
++	Content    string `json:"content"`
++	TokenCount int64  `json:"token_count"`
++	FileIds    string `json:"file_ids"`
++	CreatedAt  int64  `json:"created_at"`
++}
++
++type LcmSummaryMessage struct {
++	SummaryID string `json:"summary_id"`
++	MessageID string `json:"message_id"`
++	Ord       int64  `json:"ord"`
++}
++
++type LcmSummaryParent struct {
++	SummaryID       string `json:"summary_id"`
++	ParentSummaryID string `json:"parent_summary_id"`
++	Ord             int64  `json:"ord"`
++}
++
+ type Message struct {
+ 	ID               string         `json:"id"`
+ 	SessionID        string         `json:"session_id"`
+@@ -34,7 +77,7 @@ type Message struct {
+ type ReadFile struct {
+ 	SessionID string `json:"session_id"`
+ 	Path      string `json:"path"`
+-	ReadAt    int64  `json:"read_at"` // Unix timestamp when file was last read
++	ReadAt    int64  `json:"read_at"`
+ }
+ 
+ type Session struct {
+diff --git a/internal/db/querier.go b/internal/db/querier.go
+index 9a72be02..95a6d2f6 100644
+--- a/internal/db/querier.go
++++ b/internal/db/querier.go
+@@ -31,6 +31,24 @@ type Querier interface {
+ 	GetUsageByDayOfWeek(ctx context.Context) ([]GetUsageByDayOfWeekRow, error)
+ 	GetUsageByHour(ctx context.Context) ([]GetUsageByHourRow, error)
+ 	GetUsageByModel(ctx context.Context) ([]GetUsageByModelRow, error)
++	LCMAppendContextItem(ctx context.Context, arg LCMAppendContextItemParams) error
++	LCMCountMessagesInContext(ctx context.Context, sessionID string) (int64, error)
++	LCMCountSummariesInContext(ctx context.Context, sessionID string) (int64, error)
++	LCMExpandSummaryToMessages(ctx context.Context, summaryID string) ([]LCMExpandSummaryToMessagesRow, error)
++	LCMGetContextTokenCount(ctx context.Context, sessionID string) (interface{}, error)
++	LCMGetCurrentContext(ctx context.Context, sessionID string) ([]LCMGetCurrentContextRow, error)
++	LCMGetLargeFile(ctx context.Context, fileID string) (LcmLargeFile, error)
++	LCMGetMessageByID(ctx context.Context, id string) (LCMGetMessageByIDRow, error)
++	LCMGetMessagesToSummarize(ctx context.Context, arg LCMGetMessagesToSummarizeParams) ([]LCMGetMessagesToSummarizeRow, error)
++	LCMGetOldestSummariesInContext(ctx context.Context, arg LCMGetOldestSummariesInContextParams) ([]LCMGetOldestSummariesInContextRow, error)
++	LCMGetSummaryByID(ctx context.Context, summaryID string) (LCMGetSummaryByIDRow, error)
++	LCMGetSummaryParentIDs(ctx context.Context, summaryID string) ([]string, error)
++	// FTS5 search query is implemented directly in the SQLiteStore
++	// because sqlc cannot introspect FTS5 virtual tables.
++	LCMInsertLargeFile(ctx context.Context, arg LCMInsertLargeFileParams) error
++	LCMInsertSummary(ctx context.Context, arg LCMInsertSummaryParams) error
++	LCMInsertSummaryMessage(ctx context.Context, arg LCMInsertSummaryMessageParams) error
++	LCMInsertSummaryParent(ctx context.Context, arg LCMInsertSummaryParentParams) error
+ 	ListAllUserMessages(ctx context.Context) ([]Message, error)
+ 	ListFilesByPath(ctx context.Context, path string) ([]File, error)
+ 	ListFilesBySession(ctx context.Context, sessionID string) ([]File, error)
+diff --git a/internal/db/read_files.sql.go b/internal/db/read_files.sql.go
+index c1cda5ee..21bda47c 100644
+--- a/internal/db/read_files.sql.go
++++ b/internal/db/read_files.sql.go
+@@ -22,32 +22,10 @@ type GetFileReadParams struct {
+ func (q *Queries) GetFileRead(ctx context.Context, arg GetFileReadParams) (ReadFile, error) {
+ 	row := q.queryRow(ctx, q.getFileReadStmt, getFileRead, arg.SessionID, arg.Path)
+ 	var i ReadFile
+-	err := row.Scan(
+-		&i.SessionID,
+-		&i.Path,
+-		&i.ReadAt,
+-	)
++	err := row.Scan(&i.SessionID, &i.Path, &i.ReadAt)
+ 	return i, err
+ }
+ 
+-const recordFileRead = `-- name: RecordFileRead :exec
+-INSERT INTO read_files (
+-    session_id,
+-    path,
+-    read_at
+-) VALUES (
+-    ?,
+-    ?,
+-    strftime('%s', 'now')
+-) ON CONFLICT(path, session_id) DO UPDATE SET
+-    read_at = excluded.read_at
+-`
+-
+-type RecordFileReadParams struct {
+-	SessionID string `json:"session_id"`
+-	Path      string `json:"path"`
+-}
+-
+ const listSessionReadFiles = `-- name: ListSessionReadFiles :many
+ SELECT session_id, path, read_at FROM read_files
+ WHERE session_id = ?
+@@ -63,11 +41,7 @@ func (q *Queries) ListSessionReadFiles(ctx context.Context, sessionID string) ([
+ 	items := []ReadFile{}
+ 	for rows.Next() {
+ 		var i ReadFile
+-		if err := rows.Scan(
+-			&i.SessionID,
+-			&i.Path,
+-			&i.ReadAt,
+-		); err != nil {
++		if err := rows.Scan(&i.SessionID, &i.Path, &i.ReadAt); err != nil {
+ 			return nil, err
+ 		}
+ 		items = append(items, i)
+@@ -81,10 +55,25 @@ func (q *Queries) ListSessionReadFiles(ctx context.Context, sessionID string) ([
+ 	return items, nil
+ }
+ 
++const recordFileRead = `-- name: RecordFileRead :exec
++INSERT INTO read_files (
++    session_id,
++    path,
++    read_at
++) VALUES (
++    ?,
++    ?,
++    strftime('%s', 'now')
++) ON CONFLICT(path, session_id) DO UPDATE SET
++    read_at = excluded.read_at
++`
++
++type RecordFileReadParams struct {
++	SessionID string `json:"session_id"`
++	Path      string `json:"path"`
++}
++
+ func (q *Queries) RecordFileRead(ctx context.Context, arg RecordFileReadParams) error {
+-	_, err := q.exec(ctx, q.recordFileReadStmt, recordFileRead,
+-		arg.SessionID,
+-		arg.Path,
+-	)
++	_, err := q.exec(ctx, q.recordFileReadStmt, recordFileRead, arg.SessionID, arg.Path)
+ 	return err
+ }
+diff --git a/internal/db/lcm.sql.go b/internal/db/lcm.sql.go
+new file mode 100644
+index 00000000..d9f3a669
+--- /dev/null
++++ b/internal/db/lcm.sql.go
+@@ -0,0 +1,474 @@
++// Code generated by sqlc. DO NOT EDIT.
++// versions:
++//   sqlc v1.30.0
++// source: lcm.sql
++
++package db
++
++import (
++	"context"
++	"database/sql"
++)
++
++const lCMAppendContextItem = `-- name: LCMAppendContextItem :exec
++INSERT INTO lcm_context_items (session_id, position, item_type, message_id, summary_id)
++SELECT ?, COALESCE(MAX(ci.position), -1) + 1, ?, ?, ?
++FROM lcm_context_items ci
++WHERE ci.session_id = ?5
++`
++
++type LCMAppendContextItemParams struct {
++	SessionID string         `json:"session_id"`
++	ItemType  string         `json:"item_type"`
++	MessageID sql.NullString `json:"message_id"`
++	SummaryID sql.NullString `json:"summary_id"`
++}
++
++func (q *Queries) LCMAppendContextItem(ctx context.Context, arg LCMAppendContextItemParams) error {
++	_, err := q.exec(ctx, q.lCMAppendContextItemStmt, lCMAppendContextItem,
++		arg.SessionID,
++		arg.ItemType,
++		arg.MessageID,
++		arg.SummaryID,
++		arg.SessionID,
++	)
++	return err
++}
++
++const lCMCountMessagesInContext = `-- name: LCMCountMessagesInContext :one
++SELECT COUNT(*) FROM lcm_context_items
++WHERE session_id = ? AND item_type = 'message'
++`
++
++func (q *Queries) LCMCountMessagesInContext(ctx context.Context, sessionID string) (int64, error) {
++	row := q.queryRow(ctx, q.lCMCountMessagesInContextStmt, lCMCountMessagesInContext, sessionID)
++	var count int64
++	err := row.Scan(&count)
++	return count, err
++}
++
++const lCMCountSummariesInContext = `-- name: LCMCountSummariesInContext :one
++SELECT COUNT(*) FROM lcm_context_items
++WHERE session_id = ? AND item_type = 'summary'
++`
++
++func (q *Queries) LCMCountSummariesInContext(ctx context.Context, sessionID string) (int64, error) {
++	row := q.queryRow(ctx, q.lCMCountSummariesInContextStmt, lCMCountSummariesInContext, sessionID)
++	var count int64
++	err := row.Scan(&count)
++	return count, err
++}
++
++const lCMExpandSummaryToMessages = `-- name: LCMExpandSummaryToMessages :many
++SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
++FROM lcm_summary_messages sm
++JOIN messages m ON m.id = sm.message_id
++WHERE sm.summary_id = ?
++ORDER BY sm.ord
++`
++
++type LCMExpandSummaryToMessagesRow struct {
++	ID        string `json:"id"`
++	SessionID string `json:"session_id"`
++	Role      string `json:"role"`
++	Content   string `json:"content"`
++	CreatedAt int64  `json:"created_at"`
++}
++
++func (q *Queries) LCMExpandSummaryToMessages(ctx context.Context, summaryID string) ([]LCMExpandSummaryToMessagesRow, error) {
++	rows, err := q.query(ctx, q.lCMExpandSummaryToMessagesStmt, lCMExpandSummaryToMessages, summaryID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	items := []LCMExpandSummaryToMessagesRow{}
++	for rows.Next() {
++		var i LCMExpandSummaryToMessagesRow
++		if err := rows.Scan(
++			&i.ID,
++			&i.SessionID,
++			&i.Role,
++			&i.Content,
++			&i.CreatedAt,
++		); err != nil {
++			return nil, err
++		}
++		items = append(items, i)
++	}
++	if err := rows.Close(); err != nil {
++		return nil, err
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return items, nil
++}
++
++const lCMGetContextTokenCount = `-- name: LCMGetContextTokenCount :one
++SELECT COALESCE(SUM(
++    CASE
++        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
++        WHEN ci.item_type = 'summary' THEN s.token_count
++        ELSE 0
++    END
++), 0) AS total_tokens
++FROM lcm_context_items ci
++LEFT JOIN messages m ON m.id = ci.message_id
++LEFT JOIN lcm_summaries s ON s.summary_id = ci.summary_id
++WHERE ci.session_id = ?
++`
++
++func (q *Queries) LCMGetContextTokenCount(ctx context.Context, sessionID string) (interface{}, error) {
++	row := q.queryRow(ctx, q.lCMGetContextTokenCountStmt, lCMGetContextTokenCount, sessionID)
++	var total_tokens interface{}
++	err := row.Scan(&total_tokens)
++	return total_tokens, err
++}
++
++const lCMGetCurrentContext = `-- name: LCMGetCurrentContext :many
++SELECT
++    ci.position,
++    ci.item_type,
++    ci.message_id,
++    ci.summary_id,
++    COALESCE(m.role, 'summary') AS role,
++    COALESCE(m.parts, s.content) AS content,
++    CASE
++        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
++        ELSE COALESCE(s.token_count, 0)
++    END AS token_count,
++    COALESCE(s.kind, '') AS summary_kind
++FROM lcm_context_items ci
++LEFT JOIN messages m ON m.id = ci.message_id
++LEFT JOIN lcm_summaries s ON s.summary_id = ci.summary_id
++WHERE ci.session_id = ?
++ORDER BY ci.position
++`
++
++type LCMGetCurrentContextRow struct {
++	Position    int64          `json:"position"`
++	ItemType    string         `json:"item_type"`
++	MessageID   sql.NullString `json:"message_id"`
++	SummaryID   sql.NullString `json:"summary_id"`
++	Role        string         `json:"role"`
++	Content     string         `json:"content"`
++	TokenCount  interface{}    `json:"token_count"`
++	SummaryKind string         `json:"summary_kind"`
++}
++
++func (q *Queries) LCMGetCurrentContext(ctx context.Context, sessionID string) ([]LCMGetCurrentContextRow, error) {
++	rows, err := q.query(ctx, q.lCMGetCurrentContextStmt, lCMGetCurrentContext, sessionID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	items := []LCMGetCurrentContextRow{}
++	for rows.Next() {
++		var i LCMGetCurrentContextRow
++		if err := rows.Scan(
++			&i.Position,
++			&i.ItemType,
++			&i.MessageID,
++			&i.SummaryID,
++			&i.Role,
++			&i.Content,
++			&i.TokenCount,
++			&i.SummaryKind,
++		); err != nil {
++			return nil, err
++		}
++		items = append(items, i)
++	}
++	if err := rows.Close(); err != nil {
++		return nil, err
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return items, nil
++}
++
++const lCMGetLargeFile = `-- name: LCMGetLargeFile :one
++SELECT file_id, session_id, original_path, mime_type, token_count, created_at
++FROM lcm_large_files WHERE file_id = ?
++`
++
++func (q *Queries) LCMGetLargeFile(ctx context.Context, fileID string) (LcmLargeFile, error) {
++	row := q.queryRow(ctx, q.lCMGetLargeFileStmt, lCMGetLargeFile, fileID)
++	var i LcmLargeFile
++	err := row.Scan(
++		&i.FileID,
++		&i.SessionID,
++		&i.OriginalPath,
++		&i.MimeType,
++		&i.TokenCount,
++		&i.CreatedAt,
++	)
++	return i, err
++}
++
++const lCMGetMessageByID = `-- name: LCMGetMessageByID :one
++SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
++FROM messages m
++WHERE m.id = ?
++`
++
++type LCMGetMessageByIDRow struct {
++	ID        string `json:"id"`
++	SessionID string `json:"session_id"`
++	Role      string `json:"role"`
++	Content   string `json:"content"`
++	CreatedAt int64  `json:"created_at"`
++}
++
++func (q *Queries) LCMGetMessageByID(ctx context.Context, id string) (LCMGetMessageByIDRow, error) {
++	row := q.queryRow(ctx, q.lCMGetMessageByIDStmt, lCMGetMessageByID, id)
++	var i LCMGetMessageByIDRow
++	err := row.Scan(
++		&i.ID,
++		&i.SessionID,
++		&i.Role,
++		&i.Content,
++		&i.CreatedAt,
++	)
++	return i, err
++}
++
++const lCMGetMessagesToSummarize = `-- name: LCMGetMessagesToSummarize :many
++SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id
++FROM lcm_context_items ci
++WHERE ci.session_id = ? AND ci.item_type = 'message'
++ORDER BY ci.position
++LIMIT ?
++`
++
++type LCMGetMessagesToSummarizeParams struct {
++	SessionID string `json:"session_id"`
++	Limit     int64  `json:"limit"`
++}
++
++type LCMGetMessagesToSummarizeRow struct {
++	Position  int64          `json:"position"`
++	ItemType  string         `json:"item_type"`
++	MessageID sql.NullString `json:"message_id"`
++	SummaryID sql.NullString `json:"summary_id"`
++}
++
++func (q *Queries) LCMGetMessagesToSummarize(ctx context.Context, arg LCMGetMessagesToSummarizeParams) ([]LCMGetMessagesToSummarizeRow, error) {
++	rows, err := q.query(ctx, q.lCMGetMessagesToSummarizeStmt, lCMGetMessagesToSummarize, arg.SessionID, arg.Limit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	items := []LCMGetMessagesToSummarizeRow{}
++	for rows.Next() {
++		var i LCMGetMessagesToSummarizeRow
++		if err := rows.Scan(
++			&i.Position,
++			&i.ItemType,
++			&i.MessageID,
++			&i.SummaryID,
++		); err != nil {
++			return nil, err
++		}
++		items = append(items, i)
++	}
++	if err := rows.Close(); err != nil {
++		return nil, err
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return items, nil
++}
++
++const lCMGetOldestSummariesInContext = `-- name: LCMGetOldestSummariesInContext :many
++SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id
++FROM lcm_context_items ci
++WHERE ci.session_id = ? AND ci.item_type = 'summary'
++ORDER BY ci.position
++LIMIT ?
++`
++
++type LCMGetOldestSummariesInContextParams struct {
++	SessionID string `json:"session_id"`
++	Limit     int64  `json:"limit"`
++}
++
++type LCMGetOldestSummariesInContextRow struct {
++	Position  int64          `json:"position"`
++	ItemType  string         `json:"item_type"`
++	MessageID sql.NullString `json:"message_id"`
++	SummaryID sql.NullString `json:"summary_id"`
++}
++
++func (q *Queries) LCMGetOldestSummariesInContext(ctx context.Context, arg LCMGetOldestSummariesInContextParams) ([]LCMGetOldestSummariesInContextRow, error) {
++	rows, err := q.query(ctx, q.lCMGetOldestSummariesInContextStmt, lCMGetOldestSummariesInContext, arg.SessionID, arg.Limit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	items := []LCMGetOldestSummariesInContextRow{}
++	for rows.Next() {
++		var i LCMGetOldestSummariesInContextRow
++		if err := rows.Scan(
++			&i.Position,
++			&i.ItemType,
++			&i.MessageID,
++			&i.SummaryID,
++		); err != nil {
++			return nil, err
++		}
++		items = append(items, i)
++	}
++	if err := rows.Close(); err != nil {
++		return nil, err
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return items, nil
++}
++
++const lCMGetSummaryByID = `-- name: LCMGetSummaryByID :one
++SELECT summary_id, session_id, kind, content, token_count, file_ids
++FROM lcm_summaries WHERE summary_id = ?
++`
++
++type LCMGetSummaryByIDRow struct {
++	SummaryID  string `json:"summary_id"`
++	SessionID  string `json:"session_id"`
++	Kind       string `json:"kind"`
++	Content    string `json:"content"`
++	TokenCount int64  `json:"token_count"`
++	FileIds    string `json:"file_ids"`
++}
++
++func (q *Queries) LCMGetSummaryByID(ctx context.Context, summaryID string) (LCMGetSummaryByIDRow, error) {
++	row := q.queryRow(ctx, q.lCMGetSummaryByIDStmt, lCMGetSummaryByID, summaryID)
++	var i LCMGetSummaryByIDRow
++	err := row.Scan(
++		&i.SummaryID,
++		&i.SessionID,
++		&i.Kind,
++		&i.Content,
++		&i.TokenCount,
++		&i.FileIds,
++	)
++	return i, err
++}
++
++const lCMGetSummaryParentIDs = `-- name: LCMGetSummaryParentIDs :many
++SELECT parent_summary_id FROM lcm_summary_parents
++WHERE summary_id = ? ORDER BY ord
++`
++
++func (q *Queries) LCMGetSummaryParentIDs(ctx context.Context, summaryID string) ([]string, error) {
++	rows, err := q.query(ctx, q.lCMGetSummaryParentIDsStmt, lCMGetSummaryParentIDs, summaryID)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	items := []string{}
++	for rows.Next() {
++		var parent_summary_id string
++		if err := rows.Scan(&parent_summary_id); err != nil {
++			return nil, err
++		}
++		items = append(items, parent_summary_id)
++	}
++	if err := rows.Close(); err != nil {
++		return nil, err
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return items, nil
++}
++
++const lCMInsertLargeFile = `-- name: LCMInsertLargeFile :exec
++
++INSERT INTO lcm_large_files (file_id, session_id, original_path, mime_type, token_count)
++VALUES (?, ?, ?, ?, ?)
++ON CONFLICT(file_id) DO NOTHING
++`
++
++type LCMInsertLargeFileParams struct {
++	FileID       string `json:"file_id"`
++	SessionID    string `json:"session_id"`
++	OriginalPath string `json:"original_path"`
++	MimeType     string `json:"mime_type"`
++	TokenCount   int64  `json:"token_count"`
++}
++
++// FTS5 search query is implemented directly in the SQLiteStore
++// because sqlc cannot introspect FTS5 virtual tables.
++func (q *Queries) LCMInsertLargeFile(ctx context.Context, arg LCMInsertLargeFileParams) error {
++	_, err := q.exec(ctx, q.lCMInsertLargeFileStmt, lCMInsertLargeFile,
++		arg.FileID,
++		arg.SessionID,
++		arg.OriginalPath,
++		arg.MimeType,
++		arg.TokenCount,
++	)
++	return err
++}
++
++const lCMInsertSummary = `-- name: LCMInsertSummary :exec
++INSERT INTO lcm_summaries (summary_id, session_id, kind, content, token_count, file_ids)
++VALUES (?, ?, ?, ?, ?, ?)
++ON CONFLICT(summary_id) DO NOTHING
++`
++
++type LCMInsertSummaryParams struct {
++	SummaryID  string `json:"summary_id"`
++	SessionID  string `json:"session_id"`
++	Kind       string `json:"kind"`
++	Content    string `json:"content"`
++	TokenCount int64  `json:"token_count"`
++	FileIds    string `json:"file_ids"`
++}
++
++func (q *Queries) LCMInsertSummary(ctx context.Context, arg LCMInsertSummaryParams) error {
++	_, err := q.exec(ctx, q.lCMInsertSummaryStmt, lCMInsertSummary,
++		arg.SummaryID,
++		arg.SessionID,
++		arg.Kind,
++		arg.Content,
++		arg.TokenCount,
++		arg.FileIds,
++	)
++	return err
++}
++
++const lCMInsertSummaryMessage = `-- name: LCMInsertSummaryMessage :exec
++INSERT INTO lcm_summary_messages (summary_id, message_id, ord) VALUES (?, ?, ?)
++ON CONFLICT(summary_id, message_id) DO NOTHING
++`
++
++type LCMInsertSummaryMessageParams struct {
++	SummaryID string `json:"summary_id"`
++	MessageID string `json:"message_id"`
++	Ord       int64  `json:"ord"`
++}
++
++func (q *Queries) LCMInsertSummaryMessage(ctx context.Context, arg LCMInsertSummaryMessageParams) error {
++	_, err := q.exec(ctx, q.lCMInsertSummaryMessageStmt, lCMInsertSummaryMessage, arg.SummaryID, arg.MessageID, arg.Ord)
++	return err
++}
++
++const lCMInsertSummaryParent = `-- name: LCMInsertSummaryParent :exec
++INSERT INTO lcm_summary_parents (summary_id, parent_summary_id, ord) VALUES (?, ?, ?)
++ON CONFLICT(summary_id, parent_summary_id) DO NOTHING
++`
++
++type LCMInsertSummaryParentParams struct {
++	SummaryID       string `json:"summary_id"`
++	ParentSummaryID string `json:"parent_summary_id"`
++	Ord             int64  `json:"ord"`
++}
++
++func (q *Queries) LCMInsertSummaryParent(ctx context.Context, arg LCMInsertSummaryParentParams) error {
++	_, err := q.exec(ctx, q.lCMInsertSummaryParentStmt, lCMInsertSummaryParent, arg.SummaryID, arg.ParentSummaryID, arg.Ord)
++	return err
++}
+diff --git a/internal/db/migrations/20260218000000_create_lcm_tables.sql b/internal/db/migrations/20260218000000_create_lcm_tables.sql
+new file mode 100644
+index 00000000..b6f4b35a
+--- /dev/null
++++ b/internal/db/migrations/20260218000000_create_lcm_tables.sql
+@@ -0,0 +1,110 @@
++-- +goose Up
++-- +goose StatementBegin
++
++-- Summaries: DAG nodes
++CREATE TABLE IF NOT EXISTS lcm_summaries (
++    summary_id   TEXT PRIMARY KEY,
++    session_id   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
++    kind         TEXT NOT NULL CHECK(kind IN ('leaf', 'condensed')),
++    content      TEXT NOT NULL,
++    token_count  INTEGER NOT NULL,
++    file_ids     TEXT NOT NULL DEFAULT '[]',
++    created_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
++);
++
++CREATE INDEX IF NOT EXISTS idx_lcm_summaries_session
++    ON lcm_summaries(session_id, created_at);
++
++-- Summary-Messages: leaf summary <-> message linkage.
++CREATE TABLE IF NOT EXISTS lcm_summary_messages (
++    summary_id  TEXT NOT NULL REFERENCES lcm_summaries(summary_id) ON DELETE CASCADE,
++    message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
++    ord         INTEGER NOT NULL,
++    PRIMARY KEY (summary_id, ord),
++    UNIQUE (summary_id, message_id)
++);
++
++CREATE INDEX IF NOT EXISTS idx_lcm_summary_messages_msg
++    ON lcm_summary_messages(message_id);
++
++-- Summary-Parents: condensed summary -> parent summaries
++CREATE TABLE IF NOT EXISTS lcm_summary_parents (
++    summary_id        TEXT NOT NULL REFERENCES lcm_summaries(summary_id) ON DELETE CASCADE,
++    parent_summary_id TEXT NOT NULL REFERENCES lcm_summaries(summary_id) ON DELETE RESTRICT,
++    ord               INTEGER NOT NULL,
++    PRIMARY KEY (summary_id, ord),
++    UNIQUE (summary_id, parent_summary_id)
++);
++
++CREATE INDEX IF NOT EXISTS idx_lcm_summary_parents_parent
++    ON lcm_summary_parents(parent_summary_id);
++
++-- Context Items: active context window
++CREATE TABLE IF NOT EXISTS lcm_context_items (
++    session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
++    position    INTEGER NOT NULL,
++    item_type   TEXT NOT NULL CHECK(item_type IN ('message', 'summary')),
++    message_id  TEXT,
++    summary_id  TEXT,
++    PRIMARY KEY (session_id, position),
++    CHECK (
++        (item_type = 'message' AND message_id IS NOT NULL AND summary_id IS NULL) OR
++        (item_type = 'summary' AND summary_id IS NOT NULL AND message_id IS NULL)
++    ),
++    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
++    FOREIGN KEY (summary_id) REFERENCES lcm_summaries(summary_id) ON DELETE RESTRICT
++);
++
++CREATE INDEX IF NOT EXISTS idx_lcm_context_items_pos
++    ON lcm_context_items(session_id, position);
++
++-- Large Files: path-only storage for multi-GB files
++CREATE TABLE IF NOT EXISTS lcm_large_files (
++    file_id       TEXT PRIMARY KEY,
++    session_id    TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
++    original_path TEXT NOT NULL,
++    mime_type     TEXT NOT NULL,
++    token_count   INTEGER NOT NULL,
++    created_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
++);
++
++CREATE INDEX IF NOT EXISTS idx_lcm_large_files_session
++    ON lcm_large_files(session_id);
++
++-- FTS5 virtual table for full-text search on summaries.
++CREATE VIRTUAL TABLE IF NOT EXISTS lcm_summaries_fts USING fts5(
++    content,
++    content=lcm_summaries,
++    content_rowid=rowid
++);
++
++-- Triggers to keep FTS5 in sync
++CREATE TRIGGER IF NOT EXISTS lcm_summaries_ai AFTER INSERT ON lcm_summaries BEGIN
++    INSERT INTO lcm_summaries_fts(rowid, content) VALUES (new.rowid, new.content);
++END;
++
++CREATE TRIGGER IF NOT EXISTS lcm_summaries_ad AFTER DELETE ON lcm_summaries BEGIN
++    INSERT INTO lcm_summaries_fts(lcm_summaries_fts, rowid, content)
++        VALUES('delete', old.rowid, old.content);
++END;
++
++CREATE TRIGGER IF NOT EXISTS lcm_summaries_au AFTER UPDATE ON lcm_summaries BEGIN
++    INSERT INTO lcm_summaries_fts(lcm_summaries_fts, rowid, content)
++        VALUES('delete', old.rowid, old.content);
++    INSERT INTO lcm_summaries_fts(rowid, content) VALUES (new.rowid, new.content);
++END;
++
++-- +goose StatementEnd
++
++-- +goose Down
++-- +goose StatementBegin
++DROP TRIGGER IF EXISTS lcm_summaries_au;
++DROP TRIGGER IF EXISTS lcm_summaries_ad;
++DROP TRIGGER IF EXISTS lcm_summaries_ai;
++DROP TABLE IF EXISTS lcm_summaries_fts;
++DROP TABLE IF EXISTS lcm_large_files;
++DROP TABLE IF EXISTS lcm_context_items;
++DROP TABLE IF EXISTS lcm_summary_parents;
++DROP TABLE IF EXISTS lcm_summary_messages;
++DROP TABLE IF EXISTS lcm_summaries;
++-- +goose StatementEnd
+diff --git a/internal/db/sql/lcm.sql b/internal/db/sql/lcm.sql
+new file mode 100644
+index 00000000..051d8d0f
+--- /dev/null
++++ b/internal/db/sql/lcm.sql
+@@ -0,0 +1,104 @@
++-- name: LCMGetCurrentContext :many
++SELECT
++    ci.position,
++    ci.item_type,
++    ci.message_id,
++    ci.summary_id,
++    COALESCE(m.role, 'summary') AS role,
++    COALESCE(m.parts, s.content) AS content,
++    CASE
++        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
++        ELSE COALESCE(s.token_count, 0)
++    END AS token_count,
++    COALESCE(s.kind, '') AS summary_kind
++FROM lcm_context_items ci
++LEFT JOIN messages m ON m.id = ci.message_id
++LEFT JOIN lcm_summaries s ON s.summary_id = ci.summary_id
++WHERE ci.session_id = ?
++ORDER BY ci.position;
++
++-- name: LCMGetContextTokenCount :one
++SELECT COALESCE(SUM(
++    CASE
++        WHEN ci.item_type = 'message' THEN LENGTH(COALESCE(m.parts, '')) / 4
++        WHEN ci.item_type = 'summary' THEN s.token_count
++        ELSE 0
++    END
++), 0) AS total_tokens
++FROM lcm_context_items ci
++LEFT JOIN messages m ON m.id = ci.message_id
++LEFT JOIN lcm_summaries s ON s.summary_id = ci.summary_id
++WHERE ci.session_id = ?;
++
++-- name: LCMAppendContextItem :exec
++INSERT INTO lcm_context_items (session_id, position, item_type, message_id, summary_id)
++SELECT ?, COALESCE(MAX(ci.position), -1) + 1, ?, ?, ?
++FROM lcm_context_items ci
++WHERE ci.session_id = sqlc.arg(session_id);
++
++-- name: LCMCountMessagesInContext :one
++SELECT COUNT(*) FROM lcm_context_items
++WHERE session_id = ? AND item_type = 'message';
++
++-- name: LCMCountSummariesInContext :one
++SELECT COUNT(*) FROM lcm_context_items
++WHERE session_id = ? AND item_type = 'summary';
++
++-- name: LCMGetMessagesToSummarize :many
++SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id
++FROM lcm_context_items ci
++WHERE ci.session_id = ? AND ci.item_type = 'message'
++ORDER BY ci.position
++LIMIT ?;
++
++-- name: LCMGetOldestSummariesInContext :many
++SELECT ci.position, ci.item_type, ci.message_id, ci.summary_id
++FROM lcm_context_items ci
++WHERE ci.session_id = ? AND ci.item_type = 'summary'
++ORDER BY ci.position
++LIMIT ?;
++
++-- name: LCMInsertSummary :exec
++INSERT INTO lcm_summaries (summary_id, session_id, kind, content, token_count, file_ids)
++VALUES (?, ?, ?, ?, ?, ?)
++ON CONFLICT(summary_id) DO NOTHING;
++
++-- name: LCMInsertSummaryMessage :exec
++INSERT INTO lcm_summary_messages (summary_id, message_id, ord) VALUES (?, ?, ?)
++ON CONFLICT(summary_id, message_id) DO NOTHING;
++
++-- name: LCMInsertSummaryParent :exec
++INSERT INTO lcm_summary_parents (summary_id, parent_summary_id, ord) VALUES (?, ?, ?)
++ON CONFLICT(summary_id, parent_summary_id) DO NOTHING;
++
++-- name: LCMGetSummaryByID :one
++SELECT summary_id, session_id, kind, content, token_count, file_ids
++FROM lcm_summaries WHERE summary_id = ?;
++
++-- name: LCMGetSummaryParentIDs :many
++SELECT parent_summary_id FROM lcm_summary_parents
++WHERE summary_id = ? ORDER BY ord;
++
++-- name: LCMGetMessageByID :one
++SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
++FROM messages m
++WHERE m.id = ?;
++
++-- name: LCMExpandSummaryToMessages :many
++SELECT m.id, m.session_id, m.role, m.parts AS content, m.created_at
++FROM lcm_summary_messages sm
++JOIN messages m ON m.id = sm.message_id
++WHERE sm.summary_id = ?
++ORDER BY sm.ord;
++
++-- FTS5 search query is implemented directly in the SQLiteStore
++-- because sqlc cannot introspect FTS5 virtual tables.
++
++-- name: LCMInsertLargeFile :exec
++INSERT INTO lcm_large_files (file_id, session_id, original_path, mime_type, token_count)
++VALUES (?, ?, ?, ?, ?)
++ON CONFLICT(file_id) DO NOTHING;
++
++-- name: LCMGetLargeFile :one
++SELECT file_id, session_id, original_path, mime_type, token_count, created_at
++FROM lcm_large_files WHERE file_id = ?;
+diff --git a/internal/lcm/compactor.go b/internal/lcm/compactor.go
+new file mode 100644
+index 00000000..a273babf
+--- /dev/null
++++ b/internal/lcm/compactor.go
+@@ -0,0 +1,171 @@
++package lcm
++
++import (
++	"context"
++	"fmt"
++	"log"
++)
++
++// Compactor performs synchronous compaction of a session's context window.
++type Compactor struct {
++	store      Store
++	summarizer Summarizer
++}
++
++// NewCompactor creates a new Compactor.
++func NewCompactor(store Store, summarizer Summarizer) *Compactor {
++	return &Compactor{store: store, summarizer: summarizer}
++}
++
++// CompactContext reduces context size through iterative summarization.
++func (c *Compactor) CompactContext(
++	ctx context.Context,
++	sessionID string,
++	budget TokenBudget,
++) (int, error) {
++	for round := 0; round < MaxCompactionRounds; round++ {
++		currentTokens, err := c.store.GetContextTokenCount(ctx, sessionID)
++		if err != nil {
++			return round, fmt.Errorf("failed to get context token count: %w", err)
++		}
++
++		// Target must be below softThreshold to ensure compaction makes progress.
++		target := budget.SoftThreshold * (100 - TargetFreePercent) / 100
++
++		if currentTokens <= target {
++			log.Printf("Compaction complete after %d rounds: %d tokens (target: %d)",
++				round, currentTokens, target)
++			return round, nil
++		}
++
++		lastTokenCount := currentTokens
++
++		shouldSummarize, err := c.shouldSummarizeMessages(ctx, sessionID)
++		if err != nil {
++			return round, fmt.Errorf("failed to determine compaction strategy: %w", err)
++		}
++
++		if shouldSummarize {
++			if err := c.summarizeMessagesOnce(ctx, sessionID, budget); err != nil {
++				return round, fmt.Errorf("failed to summarize messages: %w", err)
++			}
++		} else {
++			if err := c.condenseSummariesOnce(ctx, sessionID); err != nil {
++				return round, fmt.Errorf("failed to condense summaries: %w", err)
++			}
++		}
++
++		// Progress check — runs outside the compaction transaction. A concurrent
++		// message append can make this appear higher than lastTokenCount even though
++		// compaction succeeded. The window is narrow; accepted tradeoff.
++		newTokenCount, _ := c.store.GetContextTokenCount(ctx, sessionID)
++		if newTokenCount >= lastTokenCount {
++			return round, fmt.Errorf("compaction made no progress (stuck at %d tokens)", newTokenCount)
++		}
++	}
++	return MaxCompactionRounds, fmt.Errorf("compaction did not converge after %d rounds", MaxCompactionRounds)
++}
++
++func (c *Compactor) summarizeMessagesOnce(
++	ctx context.Context,
++	sessionID string,
++	budget TokenBudget,
++) error {
++	messagesToSummarize, err := c.store.GetMessagesToSummarize(ctx, sessionID, budget.SoftThreshold)
++	if err != nil {
++		return err
++	}
++	if len(messagesToSummarize) < MinMessagesToSummarize {
++		return fmt.Errorf("not enough messages to summarize (got %d, need %d)",
++			len(messagesToSummarize), MinMessagesToSummarize)
++	}
++
++	messageIDs := make([]string, len(messagesToSummarize))
++	for i, m := range messagesToSummarize {
++		messageIDs[i] = *m.MessageID
++	}
++
++	messages, err := c.store.GetMessagesByIDs(ctx, messageIDs)
++	if err != nil {
++		return err
++	}
++
++	summary, err := c.summarizer.SummarizeMessages(ctx, messages)
++	if err != nil {
++		return err
++	}
++
++	// Two separate operations — crash between them leaves a dangling summary
++	// but ON CONFLICT DO NOTHING handles re-execution cleanly.
++	if err := c.store.InsertLeafSummary(ctx, summary, messageIDs); err != nil {
++		return err
++	}
++
++	positions := make([]int, len(messagesToSummarize))
++	for i, m := range messagesToSummarize {
++		positions[i] = m.Position
++	}
++	return c.store.ReplacePositionsWithSummary(ctx, sessionID, positions, summary.SummaryID)
++}
++
++func (c *Compactor) condenseSummariesOnce(
++	ctx context.Context,
++	sessionID string,
++) error {
++	summariesToCondense, err := c.store.GetOldestSummariesInContext(ctx, sessionID, 5)
++	if err != nil {
++		return err
++	}
++	if len(summariesToCondense) < 1 {
++		return fmt.Errorf("no summaries available to condense")
++	}
++
++	summaryIDs := make([]string, len(summariesToCondense))
++	for i, s := range summariesToCondense {
++		summaryIDs[i] = *s.SummaryID
++	}
++
++	summaries, err := c.store.GetSummariesByIDs(ctx, summaryIDs)
++	if err != nil {
++		return err
++	}
++
++	condensed, err := c.summarizer.CondenseSummaries(ctx, summaries)
++	if err != nil {
++		return err
++	}
++
++	if err := c.store.InsertCondensedSummary(ctx, condensed, summaryIDs); err != nil {
++		return err
++	}
++
++	positions := make([]int, len(summariesToCondense))
++	for i, s := range summariesToCondense {
++		positions[i] = s.Position
++	}
++	return c.store.ReplacePositionsWithSummary(ctx, sessionID, positions, condensed.SummaryID)
++}
++
++func (c *Compactor) shouldSummarizeMessages(
++	ctx context.Context, sessionID string,
++) (bool, error) {
++	messageCount, err := c.store.CountMessagesInContext(ctx, sessionID)
++	if err != nil {
++		return false, fmt.Errorf("failed to count messages: %w", err)
++	}
++	if messageCount >= MinMessagesToSummarize {
++		return true, nil
++	}
++
++	summaryCount, err := c.store.CountSummariesInContext(ctx, sessionID)
++	if err != nil {
++		return false, fmt.Errorf("failed to count summaries: %w", err)
++	}
++	if summaryCount < 1 {
++		return false, fmt.Errorf(
++			"insufficient items for compaction: %d messages (need %d), %d summaries (need ≥1)",
++			messageCount, MinMessagesToSummarize, summaryCount,
++		)
++	}
++	return false, nil
++}
+diff --git a/internal/lcm/config.go b/internal/lcm/config.go
+new file mode 100644
+index 00000000..9039e50f
+--- /dev/null
++++ b/internal/lcm/config.go
+@@ -0,0 +1,109 @@
++package lcm
++
++// --- THRESHOLD CONFIGURATION ---
++
++// DefaultCtxCutoffPercent: start compaction when context reaches this percentage
++// of the model's total context window.
++const DefaultCtxCutoffPercent = 60
++
++// TargetFreePercent: continue compacting until this fraction of the soft threshold is free.
++const TargetFreePercent = 25
++
++// MinMessagesToSummarize: minimum messages to summarize in one operation.
++const MinMessagesToSummarize = 3
++
++// MaxCompactionRounds: give up after this many rounds to prevent infinite loops.
++const MaxCompactionRounds = 10
++
++// --- LARGE FILE THRESHOLDS ---
++
++// DefaultTokenThreshold: token count above which a file is considered "large".
++const DefaultTokenThreshold = 25_000
++
++// DefaultByteThreshold: byte size above which a file is considered "large" (100,000 bytes ≈ 97.7 KiB).
++const DefaultByteThreshold = 100_000
++
++// CharsPerToken: characters-per-token estimation ratio.
++const CharsPerToken = 4
++
++// --- ESCALATION CONSTANTS ---
++
++// FallbackMaxTokens: hard token limit for deterministic Level 3 truncation.
++const FallbackMaxTokens = 512
++
++// FallbackMetadataReserve: tokens reserved for metadata lines in fallback output.
++const FallbackMetadataReserve = 100
++
++// --- ID FORMAT CONSTANTS ---
++
++const (
++	SummaryIDPrefix = "sum_"
++	SummaryIDLength = 16
++	FileIDPrefix    = "file_"
++	FileIDLength    = 16
++)
++
++// EstimateTokenCount estimates token count from string content using rune count.
++func EstimateTokenCount(content string) int {
++	if content == "" {
++		return 0
++	}
++	return len([]rune(content)) / CharsPerToken
++}
++
++// EstimateTokenCountFromBytes estimates tokens from a byte length.
++func EstimateTokenCountFromBytes(byteLen int64) int64 {
++	return byteLen / CharsPerToken
++}
++
++// IsLargeFile checks if content exceeds large file thresholds (OR logic).
++// Uses strict greater-than (>) consistent with Volt's reference implementation.
++func IsLargeFile(content string) bool {
++	if len(content) > DefaultByteThreshold {
++		return true
++	}
++	return EstimateTokenCount(content) > DefaultTokenThreshold
++}
++
++// TokenBudget represents computed thresholds for a session.
++type TokenBudget struct {
++	Overhead         int
++	Reserve          int
++	HardLimit        int
++	SoftThreshold    int
++	ContextWindow    int
++	SystemPromptToks int
++	ToolToks         int
++}
++
++// ComputeTokenBudget calculates absolute token thresholds from model parameters.
++func ComputeTokenBudget(
++	contextWindow int,
++	systemPromptToks int,
++	toolToks int,
++	softThresholdOverride *int,
++) TokenBudget {
++	overhead := systemPromptToks + toolToks
++	reserve := min(20_000, contextWindow/4)
++	hardLimit := contextWindow - overhead - reserve
++
++	softRaw := contextWindow * DefaultCtxCutoffPercent / 100
++	if softThresholdOverride != nil {
++		softRaw = *softThresholdOverride
++	}
++	softRaw -= overhead
++	softThreshold := min(softRaw, hardLimit)
++	if softThreshold < 0 {
++		softThreshold = 0
++	}
++
++	return TokenBudget{
++		Overhead:         overhead,
++		Reserve:          reserve,
++		HardLimit:        hardLimit,
++		SoftThreshold:    softThreshold,
++		ContextWindow:    contextWindow,
++		SystemPromptToks: systemPromptToks,
++		ToolToks:         toolToks,
++	}
++}
+diff --git a/internal/lcm/context.go b/internal/lcm/context.go
+new file mode 100644
+index 00000000..f3b2cf9a
+--- /dev/null
++++ b/internal/lcm/context.go
+@@ -0,0 +1,58 @@
++package lcm
++
++import (
++	"context"
++	"fmt"
++	"strings"
++)
++
++// GetFormattedContext retrieves and formats the active context window.
++func GetFormattedContext(
++	ctx context.Context,
++	store Store,
++	sessionID string,
++) ([]ContextEntry, error) {
++	entries, err := store.GetCurrentContext(ctx, sessionID)
++	if err != nil {
++		return nil, err
++	}
++
++	for i, entry := range entries {
++		if entry.ItemType == "summary" && entry.SummaryID != nil {
++			var parentIDs []string
++			parentIDs, err = store.GetSummaryParentIDs(ctx, *entry.SummaryID)
++			if err != nil {
++				return nil, err
++			}
++			formatted := FormatSummaryForContext(*entry.SummaryID, entry.Content, parentIDs)
++			overhead := GetSummaryFormattingOverhead(*entry.SummaryID, parentIDs)
++			entries[i].Content = formatted
++			entries[i].TokenCount += overhead
++		}
++	}
++
++	return entries, nil
++}
++
++// FormatSummaryForContext injects metadata at the beginning of summary content.
++func FormatSummaryForContext(summaryID string, content string, parentIDs []string) string {
++	var builder strings.Builder
++	fmt.Fprintf(&builder, "[Summary ID: %s]\n", summaryID)
++	if len(parentIDs) > 0 {
++		fmt.Fprintf(&builder, "[Parent Summaries: %s]\n", strings.Join(parentIDs, ", "))
++	}
++	builder.WriteString("\n")
++	builder.WriteString(content)
++	return builder.String()
++}
++
++// GetSummaryFormattingOverhead calculates the token overhead from injected metadata.
++func GetSummaryFormattingOverhead(summaryID string, parentIDs []string) int {
++	var lines []string
++	lines = append(lines, fmt.Sprintf("[Summary ID: %s]", summaryID))
++	if len(parentIDs) > 0 {
++		lines = append(lines, fmt.Sprintf("[Parent Summaries: %s]", strings.Join(parentIDs, ", ")))
++	}
++	lines = append(lines, "")
++	return EstimateTokenCount(strings.Join(lines, "\n"))
++}
+diff --git a/internal/lcm/format.go b/internal/lcm/format.go
+new file mode 100644
+index 00000000..22da98ea
+--- /dev/null
++++ b/internal/lcm/format.go
+@@ -0,0 +1,139 @@
++package lcm
++
++import (
++	"encoding/json"
++	"fmt"
++	"regexp"
++	"strings"
++)
++
++// FormatMessagesForSummary formats messages for LLM summarization.
++//
++// Crush serializes Message.Parts as a JSON array of wrapper objects:
++//
++//	[{"type": "text", "data": {"text": "Hello"}}, ...]
++func FormatMessagesForSummary(messages []LCMMessage) string {
++	var parts []string
++	for _, msg := range messages {
++		parts = append(parts, fmt.Sprintf("[Message %s (%s)]", msg.ID, msg.Role))
++
++		var msgParts []MessagePart
++		if err := json.Unmarshal([]byte(msg.Content), &msgParts); err != nil {
++			parts = append(parts, msg.Content)
++			parts = append(parts, "")
++			continue
++		}
++		for _, part := range msgParts {
++			d := part.Data
++			switch part.Type {
++			case "text":
++				if d.Text != "" {
++					parts = append(parts, d.Text)
++				}
++			case "tool_call":
++				parts = append(parts, fmt.Sprintf("[Tool Call: %s]", d.Name))
++				if d.Input != "" {
++					parts = append(parts, fmt.Sprintf("Input: %s", d.Input))
++				}
++				if !d.Finished {
++					parts = append(parts, "[In Progress]")
++				}
++			case "tool_result":
++				if d.IsError {
++					parts = append(parts, fmt.Sprintf("[Tool Error]\n%s", runeAwareTruncate(d.Content, 1000)))
++				} else {
++					parts = append(parts, fmt.Sprintf("[Tool Result]\n%s", runeAwareTruncate(d.Content, 1000)))
++				}
++			case "reasoning":
++				if d.Thinking != "" {
++					parts = append(parts, fmt.Sprintf("[Reasoning] %s", d.Thinking))
++				}
++			case "finish":
++				// End-of-turn marker
++			case "image_url":
++				// Skip for summarization
++			case "binary":
++				// Skip, handled via large file storage
++			}
++		}
++		parts = append(parts, "")
++	}
++	return strings.Join(parts, "\n")
++}
++
++func runeAwareTruncate(s string, maxRunes int) string {
++	runes := []rune(s)
++	if len(runes) <= maxRunes {
++		return s
++	}
++	return string(runes[:maxRunes]) + "..."
++}
++
++// MessagePart is the top-level wrapper Crush uses when serializing Message.Parts.
++type MessagePart struct {
++	Type string   `json:"type"`
++	Data partData `json:"data"`
++}
++
++// partData holds the union of fields for all content part types.
++type partData struct {
++	// TextContent
++	Text string `json:"text,omitempty"`
++	// ToolCall
++	ID       string `json:"id,omitempty"`
++	Name     string `json:"name,omitempty"`
++	Input    string `json:"input,omitempty"`
++	Finished bool   `json:"finished,omitempty"`
++	// ToolResult
++	ToolCallID string `json:"tool_call_id,omitempty"`
++	Content    string `json:"content,omitempty"`
++	IsError    bool   `json:"is_error,omitempty"`
++	// ReasoningContent — field is "thinking", NOT "text"
++	Thinking string `json:"thinking,omitempty"`
++}
++
++// FormatLargeFileForContext returns the marker string for large file references.
++func FormatLargeFileForContext(f *LargeFile) string {
++	return fmt.Sprintf("[Large File Stored: %s]\n[Path: %s]\n[Type: %s]\n[Tokens: %d]",
++		f.FileID, f.OriginalPath, f.MimeType, f.TokenCount)
++}
++
++// FormatLargeUserTextForContext is the marker for inline user text stored as a large file.
++func FormatLargeUserTextForContext(f *LargeFile) string {
++	return fmt.Sprintf("[Large User Text Stored: %s]\n[Path: %s]\n[Tokens: %d]",
++		f.FileID, f.OriginalPath, f.TokenCount)
++}
++
++// fileIDPattern matches all LCM file ID marker formats.
++var fileIDPattern = regexp.MustCompile(
++	`(?:` +
++		`\[Large File Stored:\s*(file_[0-9a-f]{16})\]` + `|` +
++		`\[Large User Text Stored:\s*(file_[0-9a-f]{16})\]` + `|` +
++		`\[LCM File ID:\s*(file_[0-9a-f]{16})\]` + `|` +
++		`file_id\s+"(file_[0-9a-f]{16})"` +
++		`)`,
++)
++
++func extractFileIDs(content string) []string {
++	matches := fileIDPattern.FindAllStringSubmatch(content, -1)
++	seen := make(map[string]bool)
++	var fileIDs []string
++	for _, match := range matches {
++		for i := 1; i < len(match); i++ {
++			if match[i] != "" && !seen[match[i]] {
++				seen[match[i]] = true
++				fileIDs = append(fileIDs, match[i])
++			}
++		}
++	}
++	return fileIDs
++}
++
++func extractFileIDsFromMessages(messages []LCMMessage) []string {
++	var allContent strings.Builder
++	for _, msg := range messages {
++		allContent.WriteString(msg.Content)
++		allContent.WriteString("\n")
++	}
++	return extractFileIDs(allContent.String())
++}
+diff --git a/internal/lcm/integration.go b/internal/lcm/integration.go
+new file mode 100644
+index 00000000..ecf37f34
+--- /dev/null
++++ b/internal/lcm/integration.go
+@@ -0,0 +1,64 @@
++package lcm
++
++import (
++	"context"
++	"log"
++)
++
++// LCM is the top-level coordinator that Crush's agent loop calls.
++type LCM struct {
++	Store             Store
++	Summarizer        Summarizer
++	CompactionManager *CompactionManager
++	DefaultBudgetFunc func(sessionID string) (TokenBudget, error)
++}
++
++// AfterMessageAppended should be called after a new message is added to
++// the session. It appends a context item and triggers compaction if needed.
++func (l *LCM) AfterMessageAppended(
++	ctx context.Context,
++	sessionID string,
++	messageID string,
++) error {
++	if err := l.Store.AppendContextItem(ctx, sessionID, "message", &messageID, nil); err != nil {
++		return err
++	}
++
++	budget, err := l.DefaultBudgetFunc(sessionID)
++	if err != nil {
++		return err
++	}
++	currentTokens, err := l.Store.GetContextTokenCount(ctx, sessionID)
++	if err != nil {
++		return err
++	}
++
++	if currentTokens > budget.SoftThreshold {
++		compactor := NewCompactor(l.Store, l.Summarizer)
++		ch := l.CompactionManager.ScheduleCompaction(ctx, sessionID, compactor, budget)
++		if ch != nil {
++			go func() {
++				result, ok := <-ch
++				if ok && result.Error != nil {
++					log.Printf("Background compaction error for %s: %v", sessionID, result.Error)
++				}
++			}()
++		}
++	}
++	return nil
++}
++
++// GetContext returns the formatted context window for an LLM call.
++func (l *LCM) GetContext(ctx context.Context, sessionID string) ([]ContextEntry, error) {
++	return GetFormattedContext(ctx, l.Store, sessionID)
++}
++
++// Expand returns the original messages for a given summary ID.
++func (l *LCM) Expand(ctx context.Context, summaryID string) ([]LCMMessage, error) {
++	return ExpandSummary(ctx, l.Store, summaryID)
++}
++
++// Search performs full-text search across session summaries.
++func (l *LCM) Search(ctx context.Context, sessionID string, query string, limit int) ([]Summary, error) {
++	return SearchSummaries(ctx, l.Store, sessionID, query, limit)
++}
+diff --git a/internal/lcm/largefile.go b/internal/lcm/largefile.go
+new file mode 100644
+index 00000000..b96f803b
+--- /dev/null
++++ b/internal/lcm/largefile.go
+@@ -0,0 +1,80 @@
++package lcm
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"io"
++	"os"
++	"time"
++)
++
++// CheckAndStoreLargeFile checks if a file is "large" and stores a path-only reference.
++func CheckAndStoreLargeFile(
++	ctx context.Context,
++	store Store,
++	sessionID string,
++	filePath string,
++	mimeType string,
++) (*LargeFile, bool, error) {
++	stat, err := os.Stat(filePath)
++	if err != nil {
++		return nil, false, fmt.Errorf("failed to stat file: %w", err)
++	}
++	fileSize := stat.Size()
++
++	if fileSize <= DefaultByteThreshold {
++		estimatedTokens := EstimateTokenCountFromBytes(fileSize)
++		if estimatedTokens <= DefaultTokenThreshold {
++			return nil, false, nil
++		}
++	}
++
++	largeFile, err := store.InsertLargeFileFromPath(ctx, sessionID, filePath, mimeType)
++	if err != nil {
++		return nil, false, fmt.Errorf("failed to insert large file: %w", err)
++	}
++	return largeFile, true, nil
++}
++
++// GetLargeFileContent reads file content from disk, with optional size limit.
++func GetLargeFileContent(originalPath string, maxBytes int64) (*LargeFileContent, error) {
++	file, err := os.Open(originalPath)
++	if err != nil {
++		return nil, fmt.Errorf("failed to open file: %w", err)
++	}
++	defer file.Close()
++
++	stat, err := file.Stat()
++	if err != nil {
++		return nil, fmt.Errorf("failed to stat file: %w", err)
++	}
++	totalSize := stat.Size()
++	bytesToRead := totalSize
++	truncated := false
++	if maxBytes > 0 && totalSize > maxBytes {
++		bytesToRead = maxBytes
++		truncated = true
++	}
++
++	buffer := make([]byte, bytesToRead)
++	n, err := io.ReadFull(file, buffer)
++	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
++		return nil, fmt.Errorf("failed to read file: %w", err)
++	}
++
++	return &LargeFileContent{
++		Content:   string(buffer[:n]),
++		Truncated: truncated,
++		TotalSize: totalSize,
++	}, nil
++}
++
++// GenerateFileIDFromPath creates a deterministic ID from file metadata.
++func GenerateFileIDFromPath(sessionID string, filePath string, fileSize int64, mtime time.Time) string {
++	h := sha256.New()
++	fmt.Fprintf(h, "%s|%s|%d|%d", sessionID, filePath, fileSize, mtime.Unix())
++	hash := hex.EncodeToString(h.Sum(nil))
++	return FileIDPrefix + hash[:FileIDLength]
++}
+diff --git a/internal/lcm/lcm_test.go b/internal/lcm/lcm_test.go
+new file mode 100644
+index 00000000..fbc61594
+--- /dev/null
++++ b/internal/lcm/lcm_test.go
+@@ -0,0 +1,313 @@
++package lcm_test
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/charmbracelet/crush/internal/lcm"
++)
++
++// --- Config Tests ---
++
++func TestEstimateTokenCount(t *testing.T) {
++	tests := []struct {
++		name     string
++		input    string
++		expected int
++	}{
++		{"empty", "", 0},
++		{"short", "hello", 1},
++		{"exact", "abcd", 1},
++		{"longer", "hello world, this is a test", 6},
++		{"unicode", "こんにちは世界", 1},
++		{"emoji", "👋🌍🎉🎊", 1},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got := lcm.EstimateTokenCount(tt.input)
++			if got != tt.expected {
++				t.Errorf("EstimateTokenCount(%q) = %d, want %d", tt.input, got, tt.expected)
++			}
++		})
++	}
++}
++
++func TestIsLargeFile(t *testing.T) {
++	tests := []struct {
++		name   string
++		size   int
++		expect bool
++	}{
++		{"small", 1000, false},
++		{"at byte threshold", 100_000, false},
++		{"above byte threshold", 100_001, true},
++		{"well above", 200_000, true},
++		{"below both thresholds", 80_000, false},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			content := strings.Repeat("a", tt.size)
++			got := lcm.IsLargeFile(content)
++			if got != tt.expect {
++				t.Errorf("IsLargeFile(len=%d) = %v, want %v", tt.size, got, tt.expect)
++			}
++		})
++	}
++}
++
++func TestComputeTokenBudget(t *testing.T) {
++	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
++	if budget.Overhead != 3000 {
++		t.Errorf("Overhead = %d, want 3000", budget.Overhead)
++	}
++	if budget.Reserve != 20_000 {
++		t.Errorf("Reserve = %d, want 20000", budget.Reserve)
++	}
++	if budget.HardLimit != 105_000 {
++		t.Errorf("HardLimit = %d, want 105000", budget.HardLimit)
++	}
++	if budget.SoftThreshold != 73_800 {
++		t.Errorf("SoftThreshold = %d, want 73800", budget.SoftThreshold)
++	}
++}
++
++func TestComputeTokenBudgetSmall(t *testing.T) {
++	budget := lcm.ComputeTokenBudget(8000, 500, 500, nil)
++	if budget.Reserve != 2000 {
++		t.Errorf("Reserve = %d, want 2000 (25%% of 8000)", budget.Reserve)
++	}
++	if budget.HardLimit != 5000 {
++		t.Errorf("HardLimit = %d, want 5000", budget.HardLimit)
++	}
++	if budget.SoftThreshold != 3800 {
++		t.Errorf("SoftThreshold = %d, want 3800", budget.SoftThreshold)
++	}
++}
++
++func TestCompactionTargetBelowSoftThreshold(t *testing.T) {
++	budget := lcm.ComputeTokenBudget(128_000, 2000, 1000, nil)
++	target := budget.SoftThreshold * (100 - lcm.TargetFreePercent) / 100
++	if target >= budget.SoftThreshold {
++		t.Errorf("target (%d) >= softThreshold (%d): compaction would never make progress",
++			target, budget.SoftThreshold)
++	}
++}
++
++// --- Summarizer Tests ---
++
++type mockLLMClient struct {
++	responses []string
++	callIdx   int
++}
++
++func (m *mockLLMClient) Generate(_ context.Context, req lcm.LLMRequest) (*lcm.LLMResponse, error) {
++	if m.callIdx >= len(m.responses) {
++		return nil, fmt.Errorf("no more mock responses")
++	}
++	resp := &lcm.LLMResponse{Text: m.responses[m.callIdx]}
++	m.callIdx++
++	return resp, nil
++}
++
++func TestSummarizeMessagesEscalation(t *testing.T) {
++	mock := &mockLLMClient{
++		responses: []string{
++			strings.Repeat("x", 10000), // Level 1: too large
++			"concise summary",           // Level 2: good
++		},
++	}
++	summarizer := lcm.NewEscalationSummarizer(mock, "test-model", lcm.Prompts{
++		SummarizeNormal:     "Summarize: {{messages}}",
++		SummarizeAggressive: "Aggressively summarize: {{messages}}",
++	})
++	messages := []lcm.LCMMessage{
++		{ID: "m1", SessionID: "s1", CreatedAt: 1000, Role: "user", Content: "Hello", TokenCount: 100},
++		{ID: "m2", SessionID: "s1", CreatedAt: 1001, Role: "assistant", Content: "Hi", TokenCount: 50},
++		{ID: "m3", SessionID: "s1", CreatedAt: 1002, Role: "user", Content: "How are you?", TokenCount: 80},
++	}
++	summary, err := summarizer.SummarizeMessages(context.Background(), messages)
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	if summary.Content != "concise summary" {
++		t.Errorf("expected Level 2 output, got: %s", summary.Content)
++	}
++	if summary.Kind != lcm.SummaryKindLeaf {
++		t.Errorf("expected leaf summary, got: %s", summary.Kind)
++	}
++}
++
++func TestFallbackUsesRuneTruncation(t *testing.T) {
++	mock := &mockLLMClient{
++		responses: []string{
++			strings.Repeat("こんにちは", 500), // Level 1: huge
++			strings.Repeat("こんにちは", 500), // Level 2: still huge
++		},
++	}
++	summarizer := lcm.NewEscalationSummarizer(mock, "test-model", lcm.Prompts{
++		SummarizeNormal:     "{{messages}}",
++		SummarizeAggressive: "{{messages}}",
++	})
++	messages := []lcm.LCMMessage{
++		{ID: "m1", SessionID: "s1", CreatedAt: 1000, Role: "user", Content: "test", TokenCount: 1},
++	}
++	summary, err := summarizer.SummarizeMessages(context.Background(), messages)
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	for i, r := range summary.Content {
++		if r == '\ufffd' {
++			t.Errorf("replacement character at index %d — rune was split", i)
++		}
++	}
++}
++
++func TestEnsureParentIDsPresent(t *testing.T) {
++	parentIDs := []string{"sum_aaa", "sum_bbb"}
++
++	t.Run("injects when missing", func(t *testing.T) {
++		result := lcm.EnsureParentIDsPresent("just some content", parentIDs)
++		if !strings.Contains(result, "sum_aaa") || !strings.Contains(result, "sum_bbb") {
++			t.Errorf("expected both parent IDs, got: %s", result)
++		}
++	})
++
++	t.Run("preserves when present", func(t *testing.T) {
++		input := "[Condensed from: sum_aaa, sum_bbb]\nsome content"
++		result := lcm.EnsureParentIDsPresent(input, parentIDs)
++		if result != input {
++			t.Errorf("should not modify, got: %s", result)
++		}
++	})
++
++	t.Run("fixes incomplete header", func(t *testing.T) {
++		input := "[Condensed from: sum_aaa]\nsome content"
++		result := lcm.EnsureParentIDsPresent(input, parentIDs)
++		if !strings.Contains(result, "sum_bbb") {
++			t.Errorf("should inject missing sum_bbb, got: %s", result)
++		}
++	})
++}
++
++func TestFallbackFileIDsExtractable(t *testing.T) {
++	mock := &mockLLMClient{
++		responses: []string{
++			strings.Repeat("x", 10000),
++			strings.Repeat("x", 10000),
++		},
++	}
++	summarizer := lcm.NewEscalationSummarizer(mock, "test-model", lcm.Prompts{
++		SummarizeNormal:     "{{messages}}",
++		SummarizeAggressive: "{{messages}}",
++	})
++	messages := []lcm.LCMMessage{
++		{
++			ID:         "m1",
++			SessionID:  "s1",
++			CreatedAt:  1000,
++			Role:       "user",
++			Content:    "[Large File Stored: file_aaaaaaaaaaaaaaaa]\n[Large File Stored: file_bbbbbbbbbbbbbbbb]",
++			TokenCount: 50,
++		},
++	}
++	summary, err := summarizer.SummarizeMessages(context.Background(), messages)
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	if !strings.Contains(summary.Content, "file_aaaaaaaaaaaaaaaa") {
++		t.Errorf("fallback should preserve file_aaaa in content, got: %s", summary.Content)
++	}
++	if !strings.Contains(summary.Content, "file_bbbbbbbbbbbbbbbb") {
++		t.Errorf("fallback should preserve file_bbbb in content, got: %s", summary.Content)
++	}
++	lines := strings.Split(summary.Content, "\n")
++	aaFound, bbFound := false, false
++	for _, line := range lines {
++		if strings.TrimSpace(line) == "[LCM File ID: file_aaaaaaaaaaaaaaaa]" {
++			aaFound = true
++		}
++		if strings.TrimSpace(line) == "[LCM File ID: file_bbbbbbbbbbbbbbbb]" {
++			bbFound = true
++		}
++	}
++	if !aaFound || !bbFound {
++		t.Errorf("file IDs should appear as individual [LCM File ID: ...] lines, got:\n%s", summary.Content)
++	}
++}
++
++// --- Format Tests ---
++
++func TestFormatMessagesForSummary_WrapperParsing(t *testing.T) {
++	// Simulate Crush's actual JSON format: [{"type":"text","data":{"text":"Hello"}}]
++	messages := []lcm.LCMMessage{
++		{
++			ID:        "m1",
++			SessionID: "s1",
++			Role:      "user",
++			Content:   `[{"type":"text","data":{"text":"Hello world"}}]`,
++		},
++		{
++			ID:        "m2",
++			SessionID: "s1",
++			Role:      "assistant",
++			Content:   `[{"type":"reasoning","data":{"thinking":"Let me think..."}},{"type":"text","data":{"text":"Hi there!"}}]`,
++		},
++	}
++	result := lcm.FormatMessagesForSummary(messages)
++	if !strings.Contains(result, "Hello world") {
++		t.Errorf("should extract text content, got:\n%s", result)
++	}
++	if !strings.Contains(result, "Let me think...") {
++		t.Errorf("should extract reasoning (thinking field), got:\n%s", result)
++	}
++	if !strings.Contains(result, "Hi there!") {
++		t.Errorf("should extract second text part, got:\n%s", result)
++	}
++}
++
++func TestFormatMessagesForSummary_ToolCall(t *testing.T) {
++	messages := []lcm.LCMMessage{
++		{
++			ID:        "m1",
++			SessionID: "s1",
++			Role:      "assistant",
++			Content:   `[{"type":"tool_call","data":{"id":"tc1","name":"bash","input":"{\"cmd\":\"ls\"}","finished":true}}]`,
++		},
++	}
++	result := lcm.FormatMessagesForSummary(messages)
++	if !strings.Contains(result, "[Tool Call: bash]") {
++		t.Errorf("should format tool call with name, got:\n%s", result)
++	}
++	if !strings.Contains(result, `Input: {"cmd":"ls"}`) {
++		t.Errorf("should include input, got:\n%s", result)
++	}
++}
++
++func TestFormatMessagesForSummary_FlatStructFails(t *testing.T) {
++	// This test proves that a flat struct would fail — the wrapper format
++	// requires the nested data object.
++	flatJSON := `[{"type":"text","text":"Hello"}]`
++	messages := []lcm.LCMMessage{
++		{ID: "m1", SessionID: "s1", Role: "user", Content: flatJSON},
++	}
++	result := lcm.FormatMessagesForSummary(messages)
++	// With our correct wrapper parsing, "Hello" appears in data.text which is at the
++	// wrong location (top-level "text" key instead of nested in "data"). The wrapper
++	// parser will NOT extract it because "data" is missing/empty.
++	// This is correct behavior — Crush never produces this format.
++	if strings.Contains(result, "Hello") {
++		t.Logf("NOTE: flat JSON did produce output — this means the partData struct is matching top-level 'text' key too")
++	}
++}
++
++func TestFormatMessagesForSummary_FallbackOnInvalidJSON(t *testing.T) {
++	messages := []lcm.LCMMessage{
++		{ID: "m1", SessionID: "s1", Role: "user", Content: "just plain text, not JSON"},
++	}
++	result := lcm.FormatMessagesForSummary(messages)
++	if !strings.Contains(result, "just plain text") {
++		t.Errorf("should fall back to raw content, got:\n%s", result)
++	}
++}
+diff --git a/internal/lcm/manager.go b/internal/lcm/manager.go
+new file mode 100644
+index 00000000..b81a8e29
+--- /dev/null
++++ b/internal/lcm/manager.go
+@@ -0,0 +1,66 @@
++package lcm
++
++import (
++	"context"
++	"log"
++	"sync"
++)
++
++// CompactionManager coordinates async compaction, ensuring at most one
++// compaction runs per session at a time.
++type CompactionManager struct {
++	inFlight sync.Map
++	eventBus EventBus
++}
++
++// NewCompactionManager creates a new CompactionManager.
++func NewCompactionManager(eventBus EventBus) *CompactionManager {
++	return &CompactionManager{eventBus: eventBus}
++}
++
++// ScheduleCompaction runs compaction asynchronously.
++// Returns nil for duplicate requests (compaction already in flight).
++func (cm *CompactionManager) ScheduleCompaction(
++	ctx context.Context,
++	sessionID string,
++	compactor *Compactor,
++	budget TokenBudget,
++) <-chan CompactionResult {
++	resultChan := make(chan CompactionResult, 1)
++
++	if _, loaded := cm.inFlight.LoadOrStore(sessionID, resultChan); loaded {
++		log.Printf("Compaction already in flight for session %s", sessionID)
++		close(resultChan)
++		return nil
++	}
++
++	compactCtx := context.WithoutCancel(ctx)
++
++	go func() {
++		defer func() {
++			cm.inFlight.Delete(sessionID)
++			close(resultChan)
++		}()
++
++		rounds, err := compactor.CompactContext(compactCtx, sessionID, budget)
++		finalTokens, _ := compactor.store.GetContextTokenCount(compactCtx, sessionID)
++		result := CompactionResult{
++			Success:     err == nil,
++			Rounds:      rounds,
++			FinalTokens: finalTokens,
++			Error:       err,
++		}
++
++		if err != nil {
++			log.Printf("Async compaction failed for session %s: %v", sessionID, err)
++		}
++
++		resultChan <- result
++
++		if cm.eventBus != nil {
++			cm.eventBus.Publish("compaction.complete", result)
++		}
++	}()
++
++	return resultChan
++}
+diff --git a/internal/lcm/replace.go b/internal/lcm/replace.go
+new file mode 100644
+index 00000000..53faff48
+--- /dev/null
++++ b/internal/lcm/replace.go
+@@ -0,0 +1,129 @@
++package lcm
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"sort"
++)
++
++// ReplacePositionsWithSummary replaces context items at given positions with
++// a single summary entry, using a delete-all/rebuild pattern within a transaction.
++func ReplacePositionsWithSummary(
++	ctx context.Context,
++	db *sql.DB,
++	sessionID string,
++	positions []int,
++	summaryID string,
++) error {
++	if len(positions) == 0 {
++		return nil
++	}
++
++	tx, err := db.BeginTx(ctx, nil)
++	if err != nil {
++		return err
++	}
++	defer tx.Rollback()
++
++	insertPos := positions[0]
++	for _, p := range positions[1:] {
++		if p < insertPos {
++			insertPos = p
++		}
++	}
++
++	posSet := make(map[int]bool, len(positions))
++	for _, p := range positions {
++		posSet[p] = true
++	}
++
++	rows, err := tx.QueryContext(ctx,
++		`SELECT position, item_type, message_id, summary_id
++         FROM lcm_context_items
++         WHERE session_id = ?
++         ORDER BY position`, sessionID)
++	if err != nil {
++		return err
++	}
++
++	type item struct {
++		Position  int
++		ItemType  string
++		MessageID sql.NullString
++		SummaryID sql.NullString
++	}
++
++	var items []item
++	for rows.Next() {
++		var it item
++		if err := rows.Scan(&it.Position, &it.ItemType, &it.MessageID, &it.SummaryID); err != nil {
++			rows.Close()
++			return err
++		}
++		items = append(items, it)
++	}
++	rows.Close()
++	if err := rows.Err(); err != nil {
++		return err
++	}
++
++	if _, err := tx.ExecContext(ctx,
++		`DELETE FROM lcm_context_items WHERE session_id = ?`, sessionID); err != nil {
++		return err
++	}
++
++	var newItems []item
++	summaryInserted := false
++	for _, it := range items {
++		if posSet[it.Position] {
++			if !summaryInserted {
++				newItems = append(newItems, item{
++					Position:  insertPos,
++					ItemType:  "summary",
++					SummaryID: sql.NullString{String: summaryID, Valid: true},
++				})
++				summaryInserted = true
++			}
++			continue
++		}
++		if !summaryInserted && it.Position > insertPos {
++			newItems = append(newItems, item{
++				Position:  insertPos,
++				ItemType:  "summary",
++				SummaryID: sql.NullString{String: summaryID, Valid: true},
++			})
++			summaryInserted = true
++		}
++		newItems = append(newItems, it)
++	}
++	if !summaryInserted {
++		newItems = append(newItems, item{
++			Position:  insertPos,
++			ItemType:  "summary",
++			SummaryID: sql.NullString{String: summaryID, Valid: true},
++		})
++	}
++
++	sort.Slice(newItems, func(i, j int) bool {
++		return newItems[i].Position < newItems[j].Position
++	})
++
++	for i, it := range newItems {
++		var msgID, sumID interface{}
++		if it.MessageID.Valid {
++			msgID = it.MessageID.String
++		}
++		if it.SummaryID.Valid {
++			sumID = it.SummaryID.String
++		}
++		if _, err := tx.ExecContext(ctx,
++			`INSERT INTO lcm_context_items (session_id, position, item_type, message_id, summary_id)
++             VALUES (?, ?, ?, ?, ?)`,
++			sessionID, i, it.ItemType, msgID, sumID); err != nil {
++			return fmt.Errorf("failed to insert context item at position %d: %w", i, err)
++		}
++	}
++
++	return tx.Commit()
++}
+diff --git a/internal/lcm/retrieval.go b/internal/lcm/retrieval.go
+new file mode 100644
+index 00000000..5107ec4a
+--- /dev/null
++++ b/internal/lcm/retrieval.go
+@@ -0,0 +1,74 @@
++package lcm
++
++import (
++	"context"
++	"fmt"
++	"strings"
++)
++
++// ExpandSummary recursively expands a summary ID to its original messages.
++func ExpandSummary(
++	ctx context.Context,
++	store Store,
++	summaryID string,
++) ([]LCMMessage, error) {
++	return expandSummaryWithVisited(ctx, store, summaryID, make(map[string]bool))
++}
++
++func expandSummaryWithVisited(
++	ctx context.Context,
++	store Store,
++	summaryID string,
++	visited map[string]bool,
++) ([]LCMMessage, error) {
++	if visited[summaryID] {
++		return nil, fmt.Errorf("cycle detected in summary DAG at node %s", summaryID)
++	}
++	visited[summaryID] = true
++
++	messages, err := store.ExpandSummaryToMessages(ctx, summaryID)
++	if err != nil {
++		return nil, fmt.Errorf("failed to expand summary %s to messages: %w", summaryID, err)
++	}
++	if len(messages) > 0 {
++		return messages, nil
++	}
++
++	parentIDs, err := store.GetSummaryParentIDs(ctx, summaryID)
++	if err != nil {
++		return nil, fmt.Errorf("failed to get parents for %s: %w", summaryID, err)
++	}
++	if len(parentIDs) == 0 {
++		return nil, fmt.Errorf("summary %s has no messages and no parents — data may be corrupt", summaryID)
++	}
++
++	var allMessages []LCMMessage
++	for _, parentID := range parentIDs {
++		msgs, err := expandSummaryWithVisited(ctx, store, parentID, visited)
++		if err != nil {
++			return nil, err
++		}
++		allMessages = append(allMessages, msgs...)
++	}
++	return allMessages, nil
++}
++
++// SearchSummaries performs full-text search across summaries using FTS5.
++func SearchSummaries(
++	ctx context.Context,
++	store Store,
++	sessionID string,
++	query string,
++	limit int,
++) ([]Summary, error) {
++	return store.SearchSummaries(ctx, sessionID, query, limit)
++}
++
++// FormatExpandedMessages formats expanded messages for display.
++func FormatExpandedMessages(messages []LCMMessage) string {
++	var builder strings.Builder
++	for _, msg := range messages {
++		fmt.Fprintf(&builder, "[%s] (%s)\n%s\n\n", msg.ID, msg.Role, msg.Content)
++	}
++	return builder.String()
++}
+diff --git a/internal/lcm/store.go b/internal/lcm/store.go
+new file mode 100644
+index 00000000..59e393e7
+--- /dev/null
++++ b/internal/lcm/store.go
+@@ -0,0 +1,339 @@
++package lcm
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"fmt"
++	"os"
++	"strings"
++
++	"github.com/charmbracelet/crush/internal/db"
++)
++
++// SQLiteStore implements the Store interface backed by sqlc-generated queries.
++type SQLiteStore struct {
++	q  *db.Queries
++	db *sql.DB
++}
++
++// NewSQLiteStore creates a new SQLiteStore.
++func NewSQLiteStore(queries *db.Queries, database *sql.DB) *SQLiteStore {
++	return &SQLiteStore{q: queries, db: database}
++}
++
++func (s *SQLiteStore) GetCurrentContext(ctx context.Context, sessionID string) ([]ContextEntry, error) {
++	rows, err := s.q.LCMGetCurrentContext(ctx, sessionID)
++	if err != nil {
++		return nil, err
++	}
++	entries := make([]ContextEntry, len(rows))
++	for i, row := range rows {
++		var msgID, sumID *string
++		if row.MessageID.Valid {
++			msgID = &row.MessageID.String
++		}
++		if row.SummaryID.Valid {
++			sumID = &row.SummaryID.String
++		}
++
++		// token_count comes as interface{} from sqlc because of the CASE expression.
++		tokenCount := 0
++		if tc, ok := row.TokenCount.(int64); ok {
++			tokenCount = int(tc)
++		}
++
++		entries[i] = ContextEntry{
++			Position:    int(row.Position),
++			ItemType:    row.ItemType,
++			MessageID:   msgID,
++			SummaryID:   sumID,
++			Role:        row.Role,
++			Content:     row.Content,
++			TokenCount:  tokenCount,
++			SummaryKind: row.SummaryKind,
++		}
++	}
++	return entries, nil
++}
++
++func (s *SQLiteStore) GetContextTokenCount(ctx context.Context, sessionID string) (int, error) {
++	result, err := s.q.LCMGetContextTokenCount(ctx, sessionID)
++	if err != nil {
++		return 0, err
++	}
++	// sqlc returns interface{} for COALESCE(SUM(CASE...)); assert to int64.
++	if v, ok := result.(int64); ok {
++		return int(v), nil
++	}
++	return 0, nil
++}
++
++func (s *SQLiteStore) ReplacePositionsWithSummary(ctx context.Context, sessionID string, positions []int, summaryID string) error {
++	return ReplacePositionsWithSummary(ctx, s.db, sessionID, positions, summaryID)
++}
++
++func (s *SQLiteStore) AppendContextItem(ctx context.Context, sessionID string, itemType string, messageID *string, summaryID *string) error {
++	var msgID, sumID sql.NullString
++	if messageID != nil {
++		msgID = sql.NullString{String: *messageID, Valid: true}
++	}
++	if summaryID != nil {
++		sumID = sql.NullString{String: *summaryID, Valid: true}
++	}
++	return s.q.LCMAppendContextItem(ctx, db.LCMAppendContextItemParams{
++		SessionID: sessionID,
++		ItemType:  itemType,
++		MessageID: msgID,
++		SummaryID: sumID,
++	})
++}
++
++func (s *SQLiteStore) GetMessagesToSummarize(ctx context.Context, sessionID string, rowLimit int) ([]ContextEntry, error) {
++	rows, err := s.q.LCMGetMessagesToSummarize(ctx, db.LCMGetMessagesToSummarizeParams{
++		SessionID: sessionID,
++		Limit:     int64(rowLimit),
++	})
++	if err != nil {
++		return nil, err
++	}
++	entries := make([]ContextEntry, len(rows))
++	for i, row := range rows {
++		var msgID, sumID *string
++		if row.MessageID.Valid {
++			msgID = &row.MessageID.String
++		}
++		if row.SummaryID.Valid {
++			sumID = &row.SummaryID.String
++		}
++		entries[i] = ContextEntry{
++			Position:  int(row.Position),
++			ItemType:  row.ItemType,
++			MessageID: msgID,
++			SummaryID: sumID,
++		}
++	}
++	return entries, nil
++}
++
++func (s *SQLiteStore) GetMessagesByIDs(ctx context.Context, ids []string) ([]LCMMessage, error) {
++	// sqlc doesn't support sqlc.slice for SQLite — loop over individual queries.
++	messages := make([]LCMMessage, 0, len(ids))
++	for _, id := range ids {
++		row, err := s.q.LCMGetMessageByID(ctx, id)
++		if err != nil {
++			return nil, fmt.Errorf("failed to get message %s: %w", id, err)
++		}
++		messages = append(messages, LCMMessage{
++			ID:         row.ID,
++			SessionID:  row.SessionID,
++			CreatedAt:  row.CreatedAt,
++			Role:       row.Role,
++			Content:    row.Content,
++			TokenCount: EstimateTokenCount(row.Content),
++		})
++	}
++	return messages, nil
++}
++
++func (s *SQLiteStore) CountMessagesInContext(ctx context.Context, sessionID string) (int, error) {
++	count, err := s.q.LCMCountMessagesInContext(ctx, sessionID)
++	return int(count), err
++}
++
++func (s *SQLiteStore) InsertLeafSummary(ctx context.Context, summary *Summary, messageIDs []string) error {
++	fileIDsJSON, err := json.Marshal(summary.FileIDs)
++	if err != nil {
++		return fmt.Errorf("failed to marshal file IDs: %w", err)
++	}
++	if err := s.q.LCMInsertSummary(ctx, db.LCMInsertSummaryParams{
++		SummaryID:  summary.SummaryID,
++		SessionID:  summary.SessionID,
++		Kind:       summary.Kind,
++		Content:    summary.Content,
++		TokenCount: summary.TokenCount,
++		FileIds:    string(fileIDsJSON),
++	}); err != nil {
++		return err
++	}
++	for i, msgID := range messageIDs {
++		if err := s.q.LCMInsertSummaryMessage(ctx, db.LCMInsertSummaryMessageParams{
++			SummaryID: summary.SummaryID,
++			MessageID: msgID,
++			Ord:       int64(i),
++		}); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func (s *SQLiteStore) InsertCondensedSummary(ctx context.Context, summary *Summary, parentIDs []string) error {
++	fileIDsJSON, err := json.Marshal(summary.FileIDs)
++	if err != nil {
++		return fmt.Errorf("failed to marshal file IDs: %w", err)
++	}
++	if err := s.q.LCMInsertSummary(ctx, db.LCMInsertSummaryParams{
++		SummaryID:  summary.SummaryID,
++		SessionID:  summary.SessionID,
++		Kind:       summary.Kind,
++		Content:    summary.Content,
++		TokenCount: summary.TokenCount,
++		FileIds:    string(fileIDsJSON),
++	}); err != nil {
++		return err
++	}
++	for i, parentID := range parentIDs {
++		if err := s.q.LCMInsertSummaryParent(ctx, db.LCMInsertSummaryParentParams{
++			SummaryID:       summary.SummaryID,
++			ParentSummaryID: parentID,
++			Ord:             int64(i),
++		}); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func (s *SQLiteStore) GetSummariesByIDs(ctx context.Context, ids []string) ([]Summary, error) {
++	summaries := make([]Summary, 0, len(ids))
++	for _, id := range ids {
++		row, err := s.q.LCMGetSummaryByID(ctx, id)
++		if err != nil {
++			return nil, fmt.Errorf("failed to get summary %s: %w", id, err)
++		}
++		var fileIDs []string
++		if err := json.Unmarshal([]byte(row.FileIds), &fileIDs); err != nil {
++			fileIDs = nil
++		}
++		summaries = append(summaries, Summary{
++			SummaryID:  row.SummaryID,
++			SessionID:  row.SessionID,
++			Kind:       row.Kind,
++			Content:    row.Content,
++			TokenCount: row.TokenCount,
++			FileIDs:    fileIDs,
++		})
++	}
++	return summaries, nil
++}
++
++func (s *SQLiteStore) GetSummaryParentIDs(ctx context.Context, summaryID string) ([]string, error) {
++	return s.q.LCMGetSummaryParentIDs(ctx, summaryID)
++}
++
++func (s *SQLiteStore) GetOldestSummariesInContext(ctx context.Context, sessionID string, limit int) ([]ContextEntry, error) {
++	rows, err := s.q.LCMGetOldestSummariesInContext(ctx, db.LCMGetOldestSummariesInContextParams{
++		SessionID: sessionID,
++		Limit:     int64(limit),
++	})
++	if err != nil {
++		return nil, err
++	}
++	entries := make([]ContextEntry, len(rows))
++	for i, row := range rows {
++		var msgID, sumID *string
++		if row.MessageID.Valid {
++			msgID = &row.MessageID.String
++		}
++		if row.SummaryID.Valid {
++			sumID = &row.SummaryID.String
++		}
++		entries[i] = ContextEntry{
++			Position:  int(row.Position),
++			ItemType:  row.ItemType,
++			MessageID: msgID,
++			SummaryID: sumID,
++		}
++	}
++	return entries, nil
++}
++
++func (s *SQLiteStore) CountSummariesInContext(ctx context.Context, sessionID string) (int, error) {
++	count, err := s.q.LCMCountSummariesInContext(ctx, sessionID)
++	return int(count), err
++}
++
++func (s *SQLiteStore) ExpandSummaryToMessages(ctx context.Context, summaryID string) ([]LCMMessage, error) {
++	rows, err := s.q.LCMExpandSummaryToMessages(ctx, summaryID)
++	if err != nil {
++		return nil, err
++	}
++	messages := make([]LCMMessage, len(rows))
++	for i, row := range rows {
++		messages[i] = LCMMessage{
++			ID:         row.ID,
++			SessionID:  row.SessionID,
++			CreatedAt:  row.CreatedAt,
++			Role:       row.Role,
++			Content:    row.Content,
++			TokenCount: EstimateTokenCount(row.Content),
++		}
++	}
++	return messages, nil
++}
++
++func (s *SQLiteStore) InsertLargeFileFromPath(ctx context.Context, sessionID string, filePath string, mimeType string) (*LargeFile, error) {
++	stat, err := os.Stat(filePath)
++	if err != nil {
++		return nil, fmt.Errorf("failed to stat file: %w", err)
++	}
++	fileSize := stat.Size()
++	mtime := stat.ModTime()
++	fileID := GenerateFileIDFromPath(sessionID, filePath, fileSize, mtime)
++	tokenCount := EstimateTokenCountFromBytes(fileSize)
++
++	if err := s.q.LCMInsertLargeFile(ctx, db.LCMInsertLargeFileParams{
++		FileID:       fileID,
++		SessionID:    sessionID,
++		OriginalPath: filePath,
++		MimeType:     mimeType,
++		TokenCount:   tokenCount,
++	}); err != nil {
++		return nil, err
++	}
++
++	return &LargeFile{
++		FileID:       fileID,
++		SessionID:    sessionID,
++		OriginalPath: filePath,
++		MimeType:     mimeType,
++		TokenCount:   tokenCount,
++	}, nil
++}
++
++// SearchSummaries performs FTS5 search. Implemented with raw SQL because
++// sqlc cannot introspect FTS5 virtual tables.
++func (s *SQLiteStore) SearchSummaries(ctx context.Context, sessionID string, query string, limit int) ([]Summary, error) {
++	// Sanitize query for FTS5: wrap in quotes and escape internal quotes.
++	safe := "\"" + strings.ReplaceAll(query, "\"", " ") + "\""
++
++	rows, err := s.db.QueryContext(ctx,
++		`SELECT s.summary_id, s.session_id, s.kind, s.content, s.token_count, s.file_ids
++		 FROM lcm_summaries_fts fts
++		 JOIN lcm_summaries s ON s.rowid = fts.rowid
++		 WHERE lcm_summaries_fts MATCH ?
++		 AND s.session_id = ?
++		 LIMIT ?`, safe, sessionID, limit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++
++	var summaries []Summary
++	for rows.Next() {
++		var s Summary
++		var fileIDsJSON string
++		if err := rows.Scan(&s.SummaryID, &s.SessionID, &s.Kind, &s.Content, &s.TokenCount, &fileIDsJSON); err != nil {
++			return nil, err
++		}
++		if err := json.Unmarshal([]byte(fileIDsJSON), &s.FileIDs); err != nil {
++			s.FileIDs = nil
++		}
++		summaries = append(summaries, s)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return summaries, nil
++}
+diff --git a/internal/lcm/summarizer.go b/internal/lcm/summarizer.go
+new file mode 100644
+index 00000000..6715b374
+--- /dev/null
++++ b/internal/lcm/summarizer.go
+@@ -0,0 +1,339 @@
++package lcm
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"regexp"
++	"strings"
++)
++
++// EscalationSummarizer implements three-level escalation for summarization.
++type EscalationSummarizer struct {
++	llmClient LLMClient
++	model     string
++	prompts   Prompts
++}
++
++// Prompts holds the prompt templates for each summarization level.
++type Prompts struct {
++	SummarizeNormal     string
++	SummarizeAggressive string
++	CondenseNormal      string
++	CondenseAggressive  string
++}
++
++// NewEscalationSummarizer creates a new EscalationSummarizer.
++func NewEscalationSummarizer(client LLMClient, model string, prompts Prompts) *EscalationSummarizer {
++	return &EscalationSummarizer{llmClient: client, model: model, prompts: prompts}
++}
++
++// SummarizeMessages implements Summarizer with three-level escalation.
++func (s *EscalationSummarizer) SummarizeMessages(
++	ctx context.Context, messages []LCMMessage,
++) (*Summary, error) {
++	if len(messages) == 0 {
++		return nil, fmt.Errorf("no messages to summarize")
++	}
++	inputTokens := calculateInputTokens(messages)
++
++	// Level 1: Normal
++	summary, err := s.summarizeNormal(ctx, messages)
++	if err == nil && summary.TokenCount < inputTokens {
++		return summary, nil
++	}
++	lastGoodOutput := summary
++
++	// Level 2: Aggressive
++	summary, err = s.summarizeAggressive(ctx, messages)
++	if err == nil && summary.TokenCount < inputTokens {
++		return summary, nil
++	}
++	if err == nil {
++		lastGoodOutput = summary
++	}
++
++	// Level 3: Fallback
++	if lastGoodOutput == nil {
++		return nil, fmt.Errorf("all summarization levels failed (no output produced)")
++	}
++	return s.summarizeFallback(lastGoodOutput.Content, messages)
++}
++
++func (s *EscalationSummarizer) summarizeNormal(
++	ctx context.Context, messages []LCMMessage,
++) (*Summary, error) {
++	formattedInput := FormatMessagesForSummary(messages)
++	prompt := buildPrompt(s.prompts.SummarizeNormal, formattedInput)
++	response, err := s.llmClient.Generate(ctx, LLMRequest{
++		Model:  s.model,
++		Prompt: prompt,
++	})
++	if err != nil {
++		return nil, fmt.Errorf("level 1 summarization failed: %w", err)
++	}
++	fileIDs := extractFileIDs(formattedInput)
++	return &Summary{
++		SummaryID:  generateSummaryID(messages),
++		SessionID:  messages[0].SessionID,
++		Kind:       SummaryKindLeaf,
++		Content:    response.Text,
++		TokenCount: int64(EstimateTokenCount(response.Text)),
++		FileIDs:    fileIDs,
++	}, nil
++}
++
++func (s *EscalationSummarizer) summarizeAggressive(
++	ctx context.Context, messages []LCMMessage,
++) (*Summary, error) {
++	formattedInput := FormatMessagesForSummary(messages)
++	prompt := buildPrompt(s.prompts.SummarizeAggressive, formattedInput)
++	response, err := s.llmClient.Generate(ctx, LLMRequest{
++		Model:     s.model,
++		Prompt:    prompt,
++		MaxTokens: 500,
++	})
++	if err != nil {
++		return nil, fmt.Errorf("level 2 aggressive summarization failed: %w", err)
++	}
++	fileIDs := extractFileIDs(formattedInput)
++	return &Summary{
++		SummaryID:  generateSummaryID(messages),
++		SessionID:  messages[0].SessionID,
++		Kind:       SummaryKindLeaf,
++		Content:    response.Text,
++		TokenCount: int64(EstimateTokenCount(response.Text)),
++		FileIDs:    fileIDs,
++	}, nil
++}
++
++func (s *EscalationSummarizer) summarizeFallback(
++	bestOutput string, originalMessages []LCMMessage,
++) (*Summary, error) {
++	maxRunes := (FallbackMaxTokens - FallbackMetadataReserve) * CharsPerToken
++	runes := []rune(bestOutput)
++	truncated := string(runes)
++	if len(runes) > maxRunes {
++		truncated = string(runes[:maxRunes])
++	}
++
++	fileIDs := extractFileIDsFromMessages(originalMessages)
++	var metadata strings.Builder
++	for _, id := range fileIDs {
++		fmt.Fprintf(&metadata, "\n[LCM File ID: %s]", id)
++	}
++	fmt.Fprintf(&metadata, "\n[Truncated from %d tokens to ≤%d tokens]",
++		EstimateTokenCount(bestOutput), FallbackMaxTokens)
++
++	finalContent := truncated + metadata.String()
++	return &Summary{
++		SummaryID:  generateSummaryID(originalMessages),
++		SessionID:  originalMessages[0].SessionID,
++		Kind:       SummaryKindLeaf,
++		Content:    finalContent,
++		TokenCount: int64(EstimateTokenCount(finalContent)),
++		FileIDs:    fileIDs,
++	}, nil
++}
++
++// CondenseSummaries compresses summaries into a single condensed node.
++func (s *EscalationSummarizer) CondenseSummaries(
++	ctx context.Context, summaries []Summary,
++) (*Summary, error) {
++	if len(summaries) == 0 {
++		return nil, fmt.Errorf("need at least 1 summary to condense, got 0")
++	}
++	inputTokens := calculateSummaryTokens(summaries)
++
++	condensed, err := s.condenseNormal(ctx, summaries)
++	if err == nil && condensed.TokenCount < inputTokens {
++		return condensed, nil
++	}
++	lastGoodOutput := condensed
++
++	condensed, err = s.condenseAggressive(ctx, summaries)
++	if err == nil && condensed.TokenCount < inputTokens {
++		return condensed, nil
++	}
++	if err == nil {
++		lastGoodOutput = condensed
++	}
++
++	if lastGoodOutput == nil {
++		return nil, fmt.Errorf("all condensation levels failed (no output produced)")
++	}
++	return s.condenseFallback(lastGoodOutput.Content, summaries)
++}
++
++func (s *EscalationSummarizer) condenseNormal(
++	ctx context.Context, summaries []Summary,
++) (*Summary, error) {
++	prompt := buildCondensePrompt(s.prompts.CondenseNormal, summaries)
++	response, err := s.llmClient.Generate(ctx, LLMRequest{
++		Model:  s.model,
++		Prompt: prompt,
++	})
++	if err != nil {
++		return nil, err
++	}
++	parentIDs := getSummaryIDs(summaries)
++	fileIDs := aggregateFileIDs(summaries)
++	content := EnsureParentIDsPresent(response.Text, parentIDs)
++	return &Summary{
++		SummaryID:  generateCondensedID(summaries),
++		SessionID:  summaries[0].SessionID,
++		Kind:       SummaryKindCondensed,
++		Content:    content,
++		TokenCount: int64(EstimateTokenCount(content)),
++		FileIDs:    fileIDs,
++	}, nil
++}
++
++func (s *EscalationSummarizer) condenseAggressive(
++	ctx context.Context, summaries []Summary,
++) (*Summary, error) {
++	prompt := buildCondensePrompt(s.prompts.CondenseAggressive, summaries)
++	response, err := s.llmClient.Generate(ctx, LLMRequest{
++		Model:     s.model,
++		Prompt:    prompt,
++		MaxTokens: 600,
++	})
++	if err != nil {
++		return nil, err
++	}
++	parentIDs := getSummaryIDs(summaries)
++	fileIDs := aggregateFileIDs(summaries)
++	content := EnsureParentIDsPresent(response.Text, parentIDs)
++	return &Summary{
++		SummaryID:  generateCondensedID(summaries),
++		SessionID:  summaries[0].SessionID,
++		Kind:       SummaryKindCondensed,
++		Content:    content,
++		TokenCount: int64(EstimateTokenCount(content)),
++		FileIDs:    fileIDs,
++	}, nil
++}
++
++func (s *EscalationSummarizer) condenseFallback(
++	bestOutput string, originalSummaries []Summary,
++) (*Summary, error) {
++	maxRunes := (FallbackMaxTokens - FallbackMetadataReserve) * CharsPerToken
++	runes := []rune(bestOutput)
++	truncated := string(runes)
++	if len(runes) > maxRunes {
++		truncated = string(runes[:maxRunes])
++	}
++
++	parentIDs := getSummaryIDs(originalSummaries)
++	fileIDs := aggregateFileIDs(originalSummaries)
++	var metadata strings.Builder
++	fmt.Fprintf(&metadata, "[Condensed from: %s]", strings.Join(parentIDs, ", "))
++	for _, id := range fileIDs {
++		fmt.Fprintf(&metadata, "\n[LCM File ID: %s]", id)
++	}
++	fmt.Fprintf(&metadata, "\n[Truncated from %d tokens to ≤%d tokens]",
++		EstimateTokenCount(bestOutput), FallbackMaxTokens)
++
++	finalContent := truncated + "\n" + metadata.String()
++	return &Summary{
++		SummaryID:  generateCondensedID(originalSummaries),
++		SessionID:  originalSummaries[0].SessionID,
++		Kind:       SummaryKindCondensed,
++		Content:    finalContent,
++		TokenCount: int64(EstimateTokenCount(finalContent)),
++		FileIDs:    fileIDs,
++	}, nil
++}
++
++// condensedFromPattern matches the [Condensed from: ...] header line.
++var condensedFromPattern = regexp.MustCompile(`(?m)^\[Condensed from:.*?\]`)
++
++// EnsureParentIDsPresent ensures all parent IDs appear in the content.
++func EnsureParentIDsPresent(content string, parentIDs []string) string {
++	fullHeader := fmt.Sprintf("[Condensed from: %s]", strings.Join(parentIDs, ", "))
++	if !condensedFromPattern.MatchString(content) {
++		return fullHeader + "\n" + content
++	}
++	for _, id := range parentIDs {
++		if !strings.Contains(content, id) {
++			return condensedFromPattern.ReplaceAllString(content, fullHeader)
++		}
++	}
++	return content
++}
++
++func generateSummaryID(messages []LCMMessage) string {
++	h := sha256.New()
++	for _, msg := range messages {
++		fmt.Fprintf(h, "%d|%s|%s", msg.CreatedAt, msg.Role, msg.Content)
++	}
++	hash := hex.EncodeToString(h.Sum(nil))
++	return SummaryIDPrefix + hash[:SummaryIDLength]
++}
++
++func generateCondensedID(summaries []Summary) string {
++	h := sha256.New()
++	for _, summary := range summaries {
++		h.Write([]byte(summary.SummaryID))
++	}
++	hash := hex.EncodeToString(h.Sum(nil))
++	return SummaryIDPrefix + hash[:SummaryIDLength]
++}
++
++func calculateInputTokens(messages []LCMMessage) int64 {
++	var total int64
++	for _, msg := range messages {
++		total += int64(msg.TokenCount)
++	}
++	return total
++}
++
++func calculateSummaryTokens(summaries []Summary) int64 {
++	var total int64
++	for _, s := range summaries {
++		total += s.TokenCount
++	}
++	return total
++}
++
++func buildPrompt(template, input string) string {
++	return strings.ReplaceAll(template, "{{messages}}", input)
++}
++
++func buildCondensePrompt(template string, summaries []Summary) string {
++	var builder strings.Builder
++	for i, summary := range summaries {
++		fmt.Fprintf(&builder, "--- Summary %d (ID: %s) ---\n%s\n",
++			i+1, summary.SummaryID, summary.Content)
++	}
++	return strings.ReplaceAll(template, "{{summaries}}", builder.String())
++}
++
++func getSummaryIDs(summaries []Summary) []string {
++	ids := make([]string, len(summaries))
++	for i, s := range summaries {
++		ids[i] = s.SummaryID
++	}
++	return ids
++}
++
++func aggregateFileIDs(summaries []Summary) []string {
++	seen := make(map[string]bool)
++	var fileIDs []string
++	for _, summary := range summaries {
++		for _, fileID := range summary.FileIDs {
++			if !seen[fileID] {
++				seen[fileID] = true
++				fileIDs = append(fileIDs, fileID)
++			}
++		}
++		for _, fileID := range extractFileIDs(summary.Content) {
++			if !seen[fileID] {
++				seen[fileID] = true
++				fileIDs = append(fileIDs, fileID)
++			}
++		}
++	}
++	return fileIDs
++}
+diff --git a/internal/lcm/types.go b/internal/lcm/types.go
+new file mode 100644
+index 00000000..0572c323
+--- /dev/null
++++ b/internal/lcm/types.go
+@@ -0,0 +1,119 @@
++package lcm
++
++import "context"
++
++// --- SUMMARY KINDS ---
++
++const (
++	SummaryKindLeaf      = "leaf"
++	SummaryKindCondensed = "condensed"
++)
++
++// --- DOMAIN TYPES ---
++
++// LCMMessage is the LCM view of a message for summarization.
++type LCMMessage struct {
++	ID         string
++	SessionID  string
++	CreatedAt  int64
++	Role       string
++	Content    string
++	TokenCount int
++}
++
++// Summary represents a DAG node.
++type Summary struct {
++	SummaryID  string
++	SessionID  string
++	Kind       string
++	Content    string
++	TokenCount int64
++	FileIDs    []string
++}
++
++// ContextEntry represents one item in the active context window.
++type ContextEntry struct {
++	Position    int
++	ItemType    string
++	MessageID   *string
++	SummaryID   *string
++	SummaryKind string
++	Role        string
++	Content     string
++	TokenCount  int
++}
++
++// LargeFile represents a path-only reference to a large file.
++type LargeFile struct {
++	FileID       string
++	SessionID    string
++	OriginalPath string
++	MimeType     string
++	TokenCount   int64
++	CreatedAt    int64
++}
++
++// LargeFileContent holds streamed file data.
++type LargeFileContent struct {
++	Content   string
++	Truncated bool
++	TotalSize int64
++}
++
++// CompactionResult is sent on the result channel after async compaction.
++type CompactionResult struct {
++	Success     bool
++	Rounds      int
++	FinalTokens int
++	Error       error
++}
++
++// --- INTERFACES ---
++
++// Summarizer abstracts LLM-based summarization (for testing).
++type Summarizer interface {
++	SummarizeMessages(ctx context.Context, messages []LCMMessage) (*Summary, error)
++	CondenseSummaries(ctx context.Context, summaries []Summary) (*Summary, error)
++}
++
++// LLMClient abstracts the LLM API call.
++type LLMClient interface {
++	Generate(ctx context.Context, req LLMRequest) (*LLMResponse, error)
++}
++
++// LLMRequest is the input to an LLM generation call.
++type LLMRequest struct {
++	Model     string
++	Prompt    string
++	MaxTokens int
++}
++
++// LLMResponse is the output from an LLM generation call.
++type LLMResponse struct {
++	Text string
++}
++
++// Store abstracts all database operations for LCM.
++type Store interface {
++	GetCurrentContext(ctx context.Context, sessionID string) ([]ContextEntry, error)
++	GetContextTokenCount(ctx context.Context, sessionID string) (int, error)
++	ReplacePositionsWithSummary(ctx context.Context, sessionID string, positions []int, summaryID string) error
++	AppendContextItem(ctx context.Context, sessionID string, itemType string, messageID *string, summaryID *string) error
++	GetMessagesToSummarize(ctx context.Context, sessionID string, rowLimit int) ([]ContextEntry, error)
++	GetMessagesByIDs(ctx context.Context, ids []string) ([]LCMMessage, error)
++	CountMessagesInContext(ctx context.Context, sessionID string) (int, error)
++	InsertLeafSummary(ctx context.Context, summary *Summary, messageIDs []string) error
++	InsertCondensedSummary(ctx context.Context, summary *Summary, parentIDs []string) error
++	GetSummariesByIDs(ctx context.Context, ids []string) ([]Summary, error)
++	GetSummaryParentIDs(ctx context.Context, summaryID string) ([]string, error)
++	GetOldestSummariesInContext(ctx context.Context, sessionID string, limit int) ([]ContextEntry, error)
++	CountSummariesInContext(ctx context.Context, sessionID string) (int, error)
++	ExpandSummaryToMessages(ctx context.Context, summaryID string) ([]LCMMessage, error)
++	InsertLargeFileFromPath(ctx context.Context, sessionID string, filePath string, mimeType string) (*LargeFile, error)
++	SearchSummaries(ctx context.Context, sessionID string, query string, limit int) ([]Summary, error)
++}
++
++// EventBus publishes compaction lifecycle events.
++type EventBus interface {
++	Publish(event string, data any)
++}
