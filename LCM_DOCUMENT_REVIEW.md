@@ -12,79 +12,45 @@ The original document contained **5 critical errors** that would cause runtime f
 
 ## Updated Guide Evaluation (Audit-Corrected Version)
 
-The "Version 4.0 — Audit-Corrected" revision addresses **27 of 30 original findings** correctly. Three original issues remain unresolved, and **one new compile error** was introduced by the `Summary.TokenCount` type change.
+### First Revision
 
-### Resolution Summary
+The first "Audit-Corrected" revision addressed **27 of 30 original findings** correctly. Three original issues remained unresolved (M4, M6, M11) and **one new compile error** (N1) was introduced by the `Summary.TokenCount` type change where `calculateInputTokens`/`calculateSummaryTokens` still returned `int` while `Summary.TokenCount` became `int64`, making `summary.TokenCount < inputTokens` a compile error.
+
+### Second Revision — All Issues Resolved
+
+The second revision resolves **all remaining issues** including the newly introduced N1:
+
+| Finding | Resolution |
+|---------|------------|
+| **M4** (orphan GC) | GC sweep query added in `lcm_summary_parents` schema comments with explanation of growth characteristics |
+| **M6** (timestamps) | Section 4 preamble now explicitly states "Unix seconds via `strftime('%s', 'now')`" and notes Crush's own migration comments say "milliseconds" while the code returns seconds |
+| **M11** (progress race) | Acknowledged in `compactor.go` inline comment as an accepted tradeoff — the window is narrow (two sequential DB calls) and SQLite WAL single-writer semantics make it rare |
+| **N1** (int64 compile error) | Both `calculateInputTokens` and `calculateSummaryTokens` now return `int64`; all comparisons are `int64 < int64` |
+
+### Full Resolution Summary
+
+All **30 original findings** and **1 introduced finding** are now resolved:
 
 | Status | Count | Findings |
 |--------|-------|----------|
-| Correctly resolved | 27 | C1, C2, C3, C4, C5, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, M1, M2, M3, M5, M9, M10 (type change correct but introduced N1), M12, V1, V2, O1, O2, O3 |
-| Not resolved | 3 | M4, M6, M11 |
-| New issue introduced | 1 | N1 (int64 vs int compile error) |
+| Resolved | 30 + 1 | C1–C5, S1–S13, M1–M12, V1–V2, O1–O3, N1 |
+| Not resolved | 0 | — |
 
-### Unresolved Issues
+### Verification Notes
 
-**M4. No Garbage Collection Strategy for Orphaned Summaries** — `lcm_summary_parents` still uses `ON DELETE RESTRICT` for `parent_summary_id`, meaning condensed parent summaries can never be deleted while they have children. Over time, the `lcm_summaries` table grows monotonically with no cleanup path. The updated guide does not address this — no GC strategy, no acknowledgment of the growth pattern, and no checklist item for it.
+**C1 (MessagePart wrapper)**: `MessagePart` uses `Type string` + `Data partData` wrapper pattern matching Crush's `partWrapper` in `message.go:222-225`. All field access via `part.Data.X`. The single most important fix.
 
-**M6. Timestamps Seconds vs Milliseconds Inconsistency** — Section 4 says "INTEGER for timestamps (Unix epoch)" without noting that Crush's initial migration comments say "Unix timestamp in milliseconds" while the actual code uses `strftime('%s', 'now')` (seconds). The LCM schema correctly uses seconds (matching Crush's actual behavior), but the pre-existing documentation inconsistency is inherited without comment.
+**C4 (Compaction target)**: Formula `target = softThreshold * (100 - TargetFreePercent) / 100` produces 55,350 for 128K contexts — always below the 73,800 soft threshold. The inline comment explaining why the old `usable * 75/100` formula was wrong prevents regression.
 
-**M11. Race Between Compaction Progress Check and Concurrent Message Insertion** — In `CompactContext`, the progress check `newTokenCount >= lastTokenCount` still runs outside the compaction transaction. If `AfterMessageAppended` concurrently appends a new message between the compaction commit and this check, `newTokenCount` could be higher than `lastTokenCount` even though compaction did reduce the context. This would cause a false "stuck at N tokens" error and abort the compaction loop. The window is narrow but real under high message throughput.
+**C5 (ON DELETE CASCADE)**: Changed on `lcm_context_items.message_id` with explanation of why RESTRICT broke existing deletion paths.
 
-### New Issue Introduced by Fixes
+**S3/S4/V1/V2 (Volt divergences)**: The "Volt Reference Implementation" section clearly states Volt uses PostgreSQL, acknowledges file ID design divergence as intentional, and reframes the relationship as a port.
 
-**N1. `Summary.TokenCount` (`int64`) vs `calculateInputTokens`/`calculateSummaryTokens` (`int`) — Compile Error**
+**M4 (GC sweep)**: The provided query (`DELETE FROM lcm_summaries WHERE summary_id NOT IN (context) AND summary_id NOT IN (parents)`) correctly targets orphaned summaries while respecting RESTRICT on parent references. Multi-level chains require multiple sweeps — acceptable for periodic cleanup.
 
-The M10 fix correctly changed `Summary.TokenCount` from `int` to `int64` to match sqlc's mapping of SQLite `INTEGER`. However, the escalation comparison sites were not updated:
+**M11 (Race)**: Documenting the race as an accepted tradeoff rather than fixing it is reasonable — SQLite WAL serializes writers, so the window between two sequential reads is extremely narrow. A code fix (e.g., moving the check inside the transaction) would add complexity for a near-theoretical scenario.
 
-```go
-// In SummarizeMessages (summarizer.go):
-inputTokens := calculateInputTokens(messages)       // returns int
-if err == nil && summary.TokenCount < inputTokens {  // int64 < int → COMPILE ERROR
-
-// In CondenseSummaries (summarizer.go):
-inputTokens := calculateSummaryTokens(summaries)     // returns int
-if err == nil && condensed.TokenCount < inputTokens { // int64 < int → COMPILE ERROR
-```
-
-In Go, comparing values of different numeric types (`int64` and `int`) without explicit conversion is a compile error:
-
-```
-invalid operation: summary.TokenCount < inputTokens (mismatched types int64 and int)
-```
-
-This affects **four comparison sites** in `summarizer.go` (Level 1 and Level 2 checks in both `SummarizeMessages` and `CondenseSummaries`).
-
-**Fix**: Either change both helper functions to return `int64`:
-
-```go
-func calculateInputTokens(messages []LCMMessage) int64 {
-    var total int64
-    for _, msg := range messages {
-        total += int64(msg.TokenCount)
-    }
-    return total
-}
-```
-
-Or cast at each comparison site: `summary.TokenCount < int64(inputTokens)`.
-
-### Correctly Resolved Findings — Verification Notes
-
-**C1 (MessagePart wrapper)**: The `MessagePart` struct now correctly uses `Type string` + `Data partData` wrapper pattern matching Crush's `partWrapper` in `message.go:222-225`. All field access goes through `part.Data.X`. This is the single most important fix.
-
-**C4 (Compaction target)**: The new formula `target = softThreshold * (100 - TargetFreePercent) / 100` produces `73800 * 75 / 100 = 55350` for 128K contexts — always below the 73,800 soft threshold. The detailed comment explaining why the old formula was wrong is excellent and prevents regression.
-
-**C5 (ON DELETE RESTRICT → CASCADE)**: Changed on `lcm_context_items.message_id` with a clear explanation of why RESTRICT broke existing deletion paths. The comment also notes the tradeoff (expansion linkage is severed but summary text survives).
-
-**S3/S4/V1/V2 (Volt divergences)**: The new "Volt Reference Implementation" section in Section 3 is well-written. It clearly states Volt uses PostgreSQL, acknowledges the file ID design divergence as intentional, and reframes the relationship as a port rather than a match.
-
-**S10 (sqlc.narg)**: Changed to `sqlc.narg()` with a clear comment about explicit nullability.
-
-**S12 (FTS5 sanitization)**: Added a WARNING comment with a concrete sanitization example (`strings.ReplaceAll(query, "\"", " ")` wrapped in quotes). This is the right level of guidance — enough to prevent the bug without over-engineering.
-
-**O1 (Bootstrap)**: The bootstrap note in `integration.go` and the Phase 4 checklist item for `BootstrapSession` adequately address the missing initialization logic.
-
-**O2 (Partial failure recovery)**: The `summarizeMessagesOnce` comment correctly explains the crash-recovery semantics of `ON CONFLICT DO NOTHING`.
+**N1 (int64 helpers)**: `calculateInputTokens` casts `int64(msg.TokenCount)` and returns `int64`; `calculateSummaryTokens` reads `s.TokenCount` (already `int64`) directly. Both documented in the Changes from v3 table.
 
 ---
 
