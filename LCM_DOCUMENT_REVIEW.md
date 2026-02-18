@@ -6,7 +6,7 @@ Reviewed against: [charmbracelet/crush](https://github.com/charmbracelet/crush) 
 
 ## Summary
 
-The document contains **5 critical errors** that would cause runtime failures or silent data loss, **10 significant errors** involving incorrect claims or design issues, and **8 minor issues**. The most severe finding is that the `MessagePart` struct and `FormatMessagesForSummary` function fundamentally misunderstand Crush's JSON serialization format, meaning the entire message parsing pipeline would silently produce empty output at runtime.
+The document contains **5 critical errors** that would cause runtime failures or silent data loss, **13 significant errors** involving incorrect claims or design issues, and **12 minor issues**. The most severe finding is that the `MessagePart` struct and `FormatMessagesForSummary` function fundamentally misunderstand Crush's JSON serialization format, meaning the entire message parsing pipeline would silently produce empty output at runtime.
 
 ---
 
@@ -221,6 +221,35 @@ The built-in `min`/`max` functions were [introduced in Go 1.21](https://go.dev/b
 
 The `LCMAppendContextItem` query uses `sqlc.arg(message_id)` and `sqlc.arg(summary_id)` for parameters that must accept NULL values (the CHECK constraint ensures exactly one is NULL). Per [sqlc documentation](https://docs.sqlc.dev/en/stable/reference/macros.html), `sqlc.narg()` is described as "the same as `sqlc.arg`, but always marks the parameter as nullable." While `sqlc.arg()` may infer nullability from the column definition in some cases, `sqlc.narg()` would be the explicit and unambiguous choice. The generated Go type discrepancy between sqlc's `sql.NullString` and the Store interface's `*string` must be bridged by the SQLiteStore regardless, but using `sqlc.narg()` makes the intent clear.
 
+### S11. `"file"` and `"patch"` Type Cases Are Dead Code; `"image_url"` and `"binary"` Are Unhandled (Section 7, `format.go`)
+
+The `format.go` switch statement includes:
+```go
+case "file", "patch":
+    // Skip — already in context via large files
+```
+
+Crush's actual content type constants (`internal/message/message.go:212-219`) are:
+```go
+imageURLType   partType = "image_url"
+binaryType     partType = "binary"
+```
+
+There are no `"file"` or `"patch"` type strings anywhere in Crush. These cases will never match any real data — they are dead code. Meanwhile, messages containing `"image_url"` (image references with URL and detail) or `"binary"` (base64-encoded file data with path and MIME type) content have no matching case and will be silently dropped during summarization. Image URLs referenced in conversations could contain context-relevant visual information that is permanently lost.
+
+### S12. FTS5 Query Sanitization Missing (Section 13)
+
+The `LCMSearchSummaries` query passes raw user input directly to FTS5:
+```sql
+WHERE lcm_summaries_fts MATCH ?
+```
+
+FTS5's MATCH expression has its own [mini-language](https://www.sqlite.org/fts5.html) with operators: `AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `:`, `-`, `"`, and parentheses. Unsanitized user input containing these characters causes either malformed MATCH expression errors (e.g., searching for `-6` or `file*`) or unexpected boolean query behavior (e.g., searching for `NOT found`). The [recommended approach](https://blog.haroldadmin.com/posts/escape-fts-queries) is to wrap each user term in double quotes with internal `"` escaped as `""`, or strip non-alphanumeric characters before passing to FTS5.
+
+### S13. `file_ids` Column JSON Marshaling Gap (Sections 4, 6, and 13)
+
+The schema defines `file_ids TEXT NOT NULL DEFAULT '[]'` (a JSON array stored as TEXT), and the Go type `Summary.FileIDs` is `[]string`. sqlc will generate a `FileIds string` field for this column. The document provides no marshal/unmarshal conversion code between the SQL-level `string` (JSON text) and the Go-level `[]string`. The `SQLiteStore` implementation must call `json.Marshal` on inserts and `json.Unmarshal` on reads, but this bridging logic is nowhere in the document — unlike other implementation details which are explicitly documented or at least noted.
+
 ---
 
 ## Minor Issues
@@ -262,6 +291,30 @@ UNIQUE (summary_id, message_id)
 ```
 
 The `LCMInsertSummaryMessage` query uses `ON CONFLICT(summary_id, message_id) DO NOTHING`, which targets the UNIQUE constraint rather than the PRIMARY KEY. This works correctly — SQLite allows `ON CONFLICT` to target any unique constraint — but if a re-summarization produces the same messages in a different order (different `ord` values), the primary key would not conflict while the UNIQUE constraint would. The idempotency guarantee holds only if the same messages always produce the same ordering, which the deterministic ID generation ensures.
+
+### M9. `ImageURLContent` and `BinaryContent` Not Documented in Section 3
+
+Section 3 documents 5 of Crush's 7 content part types (`TextContent`, `ToolCall`, `ToolResult`, `ReasoningContent`, `Finish`) but omits `ImageURLContent` (with `URL string` and `Detail string` fields, `internal/message/content.go:70-73`) and `BinaryContent` (with `Path`, `MIMEType`, `Data` fields, `content.go:81-85`). These types are serialized as `"image_url"` and `"binary"` respectively. Their omission from both the documentation and the `format.go` handler means implementers won't know these types exist or how to handle them.
+
+### M10. `Summary.TokenCount` Is `int` but sqlc Generates `int64` (Section 6)
+
+The document declares `Summary.TokenCount int` in `types.go`, but the SQL schema has `token_count INTEGER NOT NULL`. sqlc maps SQLite `INTEGER` to Go `int64`. The `SQLiteStore` implementation must perform explicit narrowing conversions (`int(row.TokenCount)`) which are technically lossy, though overflow is unrealistic for token counts.
+
+### M11. Race Between Compaction Progress Check and Concurrent Message Insertion (Section 10)
+
+In `CompactContext`, after performing compaction the code checks:
+```go
+newTokenCount, _ := c.store.GetContextTokenCount(ctx, sessionID)
+if newTokenCount >= lastTokenCount {
+    return round, fmt.Errorf("compaction made no progress (stuck at %d tokens)", newTokenCount)
+}
+```
+
+This progress check runs **outside** the compaction transaction. If `AfterMessageAppended` concurrently appends a new message between the compaction commit and this check, `newTokenCount` could be higher than `lastTokenCount` even though compaction did reduce the context. This would cause a false "stuck at N tokens" error and abort the compaction loop. The window is narrow (requires a message to arrive between two sequential DB calls), but it's a real race that could surface under high message throughput.
+
+### M12. `ReplacePositionsWithSummary` Raw SQL Contradicts sqlc Mandate (Sections 3 and 10)
+
+Section 3 states: "Use sqlc for all database queries (write `.sql` files, generate Go code)." However, `replace.go` executes raw SQL via `database/sql` transactions. The design note in Section 10 acknowledges and justifies this exception (the transactional read-delete-insert cycle can't be expressed through the Store interface), but Section 3's mandate is stated as absolute with no listed exceptions. This is a documentation inconsistency — the mandate should say "for all database queries except where noted" or Section 3 should reference the exception.
 
 ---
 
