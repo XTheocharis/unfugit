@@ -579,10 +579,10 @@ internal/db/
 
 ### Build Verification
 
-**Full-project build** (against Crush's complete dependency tree):
+**Full application build** (`go build ./...`) and LCM package tests:
 
 ```
-$ cd /tmp/crush && GOTOOLCHAIN=local GOPROXY=off go build ./internal/lcm/
+$ cd /tmp/crush && GOTOOLCHAIN=local GOPROXY=off go build ./...
 EXIT: 0
 
 $ go test ./internal/lcm/ -v
@@ -599,12 +599,14 @@ $ go test ./internal/lcm/ -v
 === RUN   TestFormatMessagesForSummary_ToolCall         --- PASS (0.00s)
 === RUN   TestFormatMessagesForSummary_FlatStructFails  --- PASS (0.00s)
 === RUN   TestFormatMessagesForSummary_FallbackOnInvalidJSON --- PASS (0.00s)
-PASS ok github.com/charmbracelet/crush/internal/lcm 0.035s
+PASS ok github.com/charmbracelet/crush/internal/lcm 0.016s
 
 $ go vet ./internal/lcm/
 EXIT: 0
 ```
 
-**Environment**: Go 1.25.1 (`/usr/local/go1.25.1/bin/go`), Crush's `go.mod` requires Go 1.25.5. Build verified with `GOTOOLCHAIN=local` (bypasses toolchain auto-download). No Go 1.25.5-specific features are used in the LCM package — the code is compatible with Go 1.25.1+.
+The entire Crush application (`./...`) compiles successfully with the LCM package included. All 13 LCM test functions (16 subtests) pass. `go vet` is clean for `./internal/lcm/`.
 
-**Note**: Full `./...` build of the entire Crush project was blocked by missing network access to download transitive dependencies (charm.land packages, openai-go, etc.) not present in the local module cache. This is an environment limitation, not a code issue — `./internal/lcm/` and its dependencies (`internal/db`, standard library, `database/sql`) all resolve and compile cleanly.
+**Note**: `go vet ./...` reports one pre-existing warning in `internal/csync/maps.go:134` (`JSONSchemaAlias passes lock by value`) — this is in Crush's existing code, not in the LCM implementation.
+
+**Environment**: Go 1.25.1 (`/usr/local/go1.25.1/bin/go`), Crush's `go.mod` requires Go 1.25.5. Two transitive dependencies (`charm.land/catwalk@v0.19.2`, `github.com/charmbracelet/x/etag@v0.2.0`) also required Go 1.25.5 — their cached `go.mod` version constraints were relaxed to 1.25.1 for build verification. No Go 1.25.5-specific language features are used anywhere in the LCM package.
